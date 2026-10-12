@@ -15,6 +15,8 @@ uniform vec3 u_b;
 
 vec3 dark, a, b;
 
+const float TAU = 6.28318530718;
+
 float hash2(vec2 p) {
   return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453123);
 }
@@ -28,10 +30,13 @@ void main() {
   dark = u_dark;
   a = u_a;
   b = u_b;
-  float t = u_time;
 
   vec2 aspect = vec2(u_resolution.x / u_resolution.y, 1.0);
   vec2 p = (v_uv - 0.5) * aspect * u_scale;
+
+  // Integer-cycle motion: phase -> unit circle.
+  float a1 = TAU * u_phase;
+  float a2 = 2.0 * a1;
 
   vec2 g = floor(p * u_scale * 0.7);
   vec2 f = fract(p * u_scale * 0.7);
@@ -43,7 +48,7 @@ void main() {
     for (int y = -2; y <= 2; y++) {
       vec2 q = vec2(float(x), float(y));
       vec2 c = cellCenter(g + q, int(mod(q.x * 3.0 + q.y * 7.0, 13.0)));
-      vec2 o = u_distort * vec2(sin(c.x * 12.0 + t * 0.5), cos(c.y * 12.0 + t * 0.4));
+      vec2 o = u_distort * vec2(sin(c.x * 12.0 + a1), cos(c.y * 12.0 + a2));
       float len = length(q + o + f - c);
       if (len < d) {
         d = len;
@@ -54,14 +59,13 @@ void main() {
 
   float edge = 1.0 - smoothstep(0.0, 0.25, d) * u_roughness;
   float fcol = ci / 12.0;
-  float hue = 0.6 + 0.25 * sin(fcol * 8.0 + t * 0.3);
-  float l = 0.25 + 0.15 * sin(fcol * 6.0 + t * 0.2);
+  float hue = 0.6 + 0.25 * sin(fcol * 8.0 + a1);
+  float l = 0.25 + 0.15 * sin(fcol * 6.0 + a2);
   vec3 col = vec3(hue, 0.5, l);
   col = mix(dark, col, smoothstep(0.2, 0.8, edge));
   col = mix(col, a, smoothstep(0.3, 0.9, edge) * 0.7);
   col = mix(col, b, smoothstep(0.5, 0.98, edge) * 0.85);
 
-  col = pow(col, vec3(1.0 / 2.2));
   outColor = vec4(col, 1.0);
 }
 `;
