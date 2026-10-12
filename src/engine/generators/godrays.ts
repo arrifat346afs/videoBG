@@ -93,7 +93,6 @@ void main() {
   vec3 col = mix(u_dark, rayCol, m);
   col += rayCol * pow(clamp(glow, 0.0, 1.5), 1.6) * (0.3 + u_bloom * 0.45);
 
-  col = pow(clamp(col, 0.0, 1.0), vec3(0.4545));
   outColor = vec4(col, 1.0);
 }
 `;
