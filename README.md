@@ -10,7 +10,7 @@ WebM fallback via MediaRecorder).
 - WebGL2 + custom tiny wrapper (`src/engine/gl.ts`, no `ogl`) — fullscreen triangle, uniform cache, context-loss handling.
 - Zustand for state, Tweakpane for settings panel.
 - mediabunny (successor to mp4-muxer) + WebCodecs VideoEncoder; MediaRecorder fallback.
-- Vitest (33 tests: RNG, loop math, palettes, registry, share, export math).
+- Vitest (53 tests: RNG, loop math, palettes, registry, share, export math).
 
 ## Architecture
 
@@ -30,11 +30,14 @@ WebM fallback via MediaRecorder).
   export size, encode via `VideoFrame` → mediabunny `VideoSampleSource`. Never
   real-time. Progress + cancel via `AbortSignal`.
 
-## Generators (16)
+## Generators (22)
 
-domain-warp, gradient-mesh, aurora, flow-field, metaballs, voronoi, plasma,
-kaleidoscope, truchet, topographic, julia, particles, halftone, raymarched,
-reaction-diffusion, god-rays.
+2D shader generators (16): domain-warp, gradient-mesh, aurora, flow-field,
+metaballs, voronoi, plasma, kaleidoscope, truchet, topographic, julia, particles,
+halftone, raymarched, reaction-diffusion, god-rays.
+
+3D scene generators (6): wave-mesh, dot-wave, hex-wave, tri-wave, plexus-3d,
+data-flow.
 
 ## How to add a new generator (one file + one line)
 
@@ -47,11 +50,11 @@ reaction-diffusion, god-rays.
    out vec4 outColor;
    uniform float u_scale;
    uniform vec3 u_dark;
-   // u_resolution, u_phase, u_seed, u_time provided by renderer.
+   // u_resolution, u_phase, u_seed provided by renderer.
    // COMMON_GLSL provides hash12, vnoise, gnoise, snoise, fbm2, smin.
    void main() {
-     float t = u_time; // loop-safe
-     // ... periodic motion only ...
+     float t = 6.28318530718 * u_phase; // 0..TAU over one loop
+     // ... periodic motion only (integer k in sin/cos(TAU*u_phase*k)) ...
      outColor = vec4(col, 1.0);
    }`;
    export const myStyle: Generator = {
