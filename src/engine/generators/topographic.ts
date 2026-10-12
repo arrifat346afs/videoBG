@@ -15,6 +15,8 @@ uniform vec3 u_c;
 
 vec3 dark, a, b, c;
 
+const float TAU = 6.28318530718;
+
 float fbm(vec2 p) {
   float v = 0.0;
   float w = 0.5;
@@ -31,21 +33,23 @@ void main() {
   a = u_a;
   b = u_b;
   c = u_c;
-  float t = u_time;
 
   vec2 aspect = vec2(u_resolution.x / u_resolution.y, 1.0);
   vec2 p = (v_uv - 0.5) * aspect * u_scale;
 
-  float f = fbm(p * 1.4 + vec2(cos(t * 0.15), sin(t * 0.2)) * 2.0);
-  f += 0.5 * fbm(p * 2.8 - vec2(sin(t * 0.12), cos(t * 0.18)) * 2.0);
+  // Integer-cycle motion: phase -> unit circle.
+  float a1 = TAU * u_phase;
+  float ca = cos(a1);
+  float sa = sin(a1);
 
-  float contour = 1.0;
-  float lvlStep = 1.0 / u_steps;
-  for (int i = 0; i < 6; i++) {
-    float level = float(i) * lvlStep;
-    float d = abs(f - level);
-    contour *= 1.0 - smoothstep(0.0, u_smooth, d);
-  }
+  float f = fbm(p * 1.4 + vec2(ca, sa) * 1.5);
+  f += 0.5 * fbm(p * 2.8 - vec2(sa, ca) * 1.5);
+
+  // Contour lines at integer levels of f * steps. The fraction measures the
+  // distance to the nearest line center (0 on a line, 1 midway between lines);
+  // a product over discrete levels is identically zero and showed nothing.
+  float lineDist = abs(fract(f * u_steps) - 0.5) * 2.0;
+  float contour = 1.0 - smoothstep(0.0, clamp(u_smooth, 0.02, 0.9), lineDist);
 
   float m1 = smoothstep(0.2, 0.6, contour);
   float m2 = smoothstep(0.5, 0.9, contour);
@@ -55,7 +59,6 @@ void main() {
   float glow = pow(contour, u_smooth * 2.0) * 0.6;
   col += c * glow * 0.5;
 
-  col = pow(col, vec3(1.0 / 2.2));
   outColor = vec4(col, 1.0);
 }
 `;
