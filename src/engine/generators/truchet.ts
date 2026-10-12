@@ -13,12 +13,16 @@ uniform vec3 u_b;
 
 vec3 dark, a, b;
 
-float truchet(vec2 p, float t) {
+const float TAU = 6.28318530718;
+
+// a1 is the integer-cycle phase angle; off is a constant per-call offset.
+float truchet(vec2 p, float a1, float off) {
+  float tt = a1 + off;
   vec2 g = floor(p);
   vec2 f = fract(p);
-  float s = fract(g.x * 0.31 + g.y * 0.53 + t * 0.2 + u_seed);
-  float h = fract(g.y * 0.5 + g.x * 0.41 + t * 0.3);
-  float edge = 0.18 + 0.08 * sin(t);
+  float s = fract(g.x * 0.31 + g.y * 0.53 + 0.35 * sin(tt) + u_seed);
+  float h = fract(g.y * 0.5 + g.x * 0.41 + 0.30 * cos(tt));
+  float edge = 0.18 + 0.08 * sin(tt);
   float d = 0.0;
   if (s < 0.5) {
     d = min(length(vec2(f.x, 1.0 - f.y)), length(vec2(1.0 - f.x, f.y)));
@@ -27,25 +31,26 @@ float truchet(vec2 p, float t) {
   }
   float line = smoothstep(edge, 0.0, d);
   line *= 1.0 - abs(cos(3.14159265359 * f.x) * cos(3.14159265359 * f.y) * 2.0);
-  return line + h * 0.02 * sin(t * 3.0);
+  return line + h * 0.02 * sin(3.0 * a1 + off);
 }
 
 void main() {
   dark = u_dark;
   a = u_a;
   b = u_b;
-  float t = u_time;
 
   vec2 aspect = vec2(u_resolution.x / u_resolution.y, 1.0);
   vec2 p = (v_uv - 0.5) * aspect * u_scale;
 
+  float a1 = TAU * u_phase;
+
   vec2 g = floor(p * 3.0 + 0.5);
   vec2 f = fract(p * 3.0 + 0.5);
 
-  float t1 = truchet(p * 3.0, t);
-  float t2 = truchet(vec2(fract(g.x + 0.5), g.y) * 3.0 - f, t);
-  float t3 = truchet(p * 3.0 + vec2(1.0, -1.0), t + 0.5);
-  float t4 = truchet(p * 3.0 + vec2(-1.0, 1.0), t + 1.0);
+  float t1 = truchet(p * 3.0, a1, 0.0);
+  float t2 = truchet(vec2(fract(g.x + 0.5), g.y) * 3.0 - f, a1, 0.0);
+  float t3 = truchet(p * 3.0 + vec2(1.0, -1.0), a1, 0.5);
+  float t4 = truchet(p * 3.0 + vec2(-1.0, 1.0), a1, 1.0);
 
   float grid = smoothstep(0.0, 0.5, max(max(t1, t2), max(t3, t4)));
   float d0 = length(f);
@@ -61,7 +66,6 @@ void main() {
   float rim = pow(1.0 - smoothstep(0.0, 1.0, corners), u_round) * 0.5;
   col += b * rim * 0.4;
 
-  col = pow(col, vec3(1.0 / 2.2));
   outColor = vec4(col, 1.0);
 }
 `;
