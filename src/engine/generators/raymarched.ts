@@ -15,18 +15,21 @@ uniform vec3 u_c;
 
 vec3 dark, a, b, c;
 
+const float TAU = 6.28318530718;
+
 float smin3(float a, float b, float c, float k) {
   float h = clamp(0.5 + 0.5 * (min(a, b) - c) / k, 0.0, 1.0);
   return mix(min(a, b), c, h) - k * h * (1.0 - h);
 }
 
 float map(vec3 p) {
-  float t = u_time;
+  // Integer-cycle motion: phase -> unit circle, so the field is seamless.
+  float t = TAU * u_phase;
   vec3 q = p;
-  q.xz = mat2(cos(t * 0.3), -sin(t * 0.3), sin(t * 0.3), cos(t * 0.3)) * p.xz;
+  q.xz = mat2(cos(t), -sin(t), sin(t), cos(t)) * p.xz;
   float d = length(q);
-  float n = snoise(q * 1.2 + vec3(0.0, t * 0.2, 0.0));
-  float r = 0.75 + 0.25 * sin(t * 0.7 + d * 2.0);
+  float n = snoise(q * 1.2 + vec3(cos(t), sin(t), 0.0) * 0.5);
+  float r = 0.75 + 0.25 * sin(t + d * 2.0);
   return d - r - n * 0.08 * (1.0 + 0.5 * u_detail);
 }
 
@@ -43,7 +46,7 @@ void main() {
   a = u_a;
   b = u_b;
   c = u_c;
-  float t = u_time;
+  float t = TAU * u_phase;
 
   vec2 aspect = vec2(u_resolution.x / u_resolution.y, 1.0);
   vec2 uv = (v_uv - 0.5) * vec2(aspect.x * u_scale, aspect.y * u_scale);
@@ -73,7 +76,6 @@ void main() {
     col += b * pow(dif, 3.0) * 0.6;
   }
 
-  col = pow(col, vec3(1.0 / 2.2));
   outColor = vec4(col, 1.0);
 }
 `;
