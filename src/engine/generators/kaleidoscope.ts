@@ -14,6 +14,8 @@ uniform vec3 u_b;
 
 vec3 dark, a, b;
 
+const float TAU = 6.28318530718;
+
 float fbm(vec2 p) {
   float v = 0.0;
   float w = 0.5;
@@ -29,12 +31,18 @@ void main() {
   dark = u_dark;
   a = u_a;
   b = u_b;
-  float t = u_time * 0.7;
 
   vec2 aspect = vec2(u_resolution.x / u_resolution.y, 1.0);
   vec2 p = (v_uv - 0.5) * aspect * u_scale;
-  float s = u_resolution.x / u_resolution.y;
   vec2 q = p;
+
+  // Integer-cycle motion: phase -> unit circle.
+  float a1 = TAU * u_phase;
+  float a2 = 2.0 * a1;
+  float ca = cos(a1);
+  float sa = sin(a1);
+  float c2 = cos(a2);
+  float s2 = sin(a2);
 
   // Polar coordinate mapping for the mandala.
   float r = length(q);
@@ -42,23 +50,18 @@ void main() {
   float sym = u_symmetry + 1.0;
   float k = floor(ang / (3.14159265359 / sym));
   ang = mod(ang, 3.14159265359 / sym);
-  float sgn = step(0.0, ang - 3.14159265359 / (2.0 * sym));
   ang = abs(ang - 3.14159265359 / sym);
 
-  float aT = t * 0.5 + k * 0.2;
-  vec2 m = vec2(cos(aT) * 0.3 + cos(aT * 0.5) * 0.2,
-                sin(aT) * 0.3 + sin(aT * 0.5) * 0.2);
-  vec2 base = q * u_spread * 0.4 + m * r * 0.02 + vec2(sin(t), cos(t)) * r * 0.03;
-  float f = fbm(base * 2.2 + vec2(cos(aT), sin(aT)) * r * 0.3);
+  vec2 m = vec2(ca * 0.3 + c2 * 0.2, sa * 0.3 + s2 * 0.2);
+  vec2 base = q * u_spread * 0.4 + m * r * 0.02 + vec2(sa, ca) * r * 0.03;
+  float f = fbm(base * 2.2 + vec2(ca, sa) * r * 0.3);
 
   float m1 = smoothstep(0.15, 0.55, f);
   float m2 = smoothstep(0.45, 0.85, f);
   vec3 col = mix(dark, a, m1);
   col = mix(col, b, m2);
-  float rim = pow(1.0 - smoothstep(0.0, 1.0, r * 0.35), 2.0);
-  col += b * pow(f, 2.0) * 0.6 * (0.6 + 0.4 * sin(t + r));
+  col += b * pow(f, 2.0) * 0.6 * (0.6 + 0.4 * sin(a1 + r));
 
-  col = pow(col, vec3(1.0 / 2.2));
   outColor = vec4(col, 1.0);
 }
 `;
