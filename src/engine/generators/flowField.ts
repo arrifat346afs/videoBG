@@ -14,13 +14,16 @@ uniform vec3 u_b;
 
 vec3 dark, a, b;
 
+const float TAU = 6.28318530718;
+
 float hash2(vec2 p) {
   return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453123);
 }
 
+// t is a periodic drift scalar (sin/cos of TAU*u_phase), never linear time.
 vec2 curl(vec2 p, float t) {
-  float v1 = gnoise(vec3(p * 1.7 + vec2(0.0, t * 0.3), 1.0));
-  float v2 = gnoise(vec3(p * 1.7 + vec2(1.0, t * 0.3), 2.0));
+  float v1 = gnoise(vec3(p * 1.7 + vec2(0.0, t), 1.0));
+  float v2 = gnoise(vec3(p * 1.7 + vec2(1.0, t), 2.0));
   return normalize(vec2(v1 - v2, v2 - hash2(p)));
 }
 
@@ -28,31 +31,35 @@ void main() {
   dark = u_dark;
   a = u_a;
   b = u_b;
-  float t = u_time;
 
   vec2 aspect = vec2(u_resolution.x / u_resolution.y, 1.0);
   vec2 p = (v_uv - 0.5) * aspect * u_scale;
 
-  vec2 dir = curl(p * u_scale * 0.3, t * 0.25);
+  // Integer-cycle motion: phase -> unit circle.
+  float a1 = TAU * u_phase;
+  float ca = cos(a1);
+  float sa = sin(a1);
+  float drift = sa * 0.45;
+
+  vec2 dir = curl(p * u_scale * 0.3, drift);
   float accum = 0.0;
   float d = 0.0;
   vec2 q = p;
   for (int i = 0; i < 64; i++) {
-    dir = curl(q * u_scale * 0.3, t * 0.25 + float(i) * 0.5);
-    q += dir * (0.02 + 0.01 * sin(t));
-    accum += gnoise(q * 2.5 + vec2(sin(t), cos(t))) * 0.35;
+    // Per-iteration offset stays periodic because drift is periodic.
+    dir = curl(q * u_scale * 0.3, drift + float(i) * 0.5);
+    q += dir * (0.02 + 0.01 * sa);
+    accum += gnoise(q * 2.5 + vec2(ca, sa)) * 0.35;
     d += length(dir);
   }
 
   accum = smoothstep(0.0, 0.4, accum);
   d *= smoothstep(0.0, 0.9, accum);
-  float trail = 0.5 + 0.5 * sin(d * 12.0 + t * 2.0);
+  float trail = 0.5 + 0.5 * sin(d * 12.0 + 2.0 * a1);
   vec3 col = mix(dark, a, trail);
   col = mix(col, b, accum * 0.9);
-  float glow = pow(accum, u_thickness) * 2.5;
   col += b * pow(accum, u_thickness) * 1.5;
 
-  col = pow(col, vec3(1.0 / 2.2));
   outColor = vec4(col, 1.0);
 }
 `;

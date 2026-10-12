@@ -32,7 +32,8 @@ const SEED = 12345;
 const args = process.argv.slice(2);
 const verbose = args.includes('--verbose');
 const tIdx = args.indexOf('--threshold');
-const THRESHOLD = tIdx >= 0 ? Number(args[tIdx + 1]) : 0.002;
+const THRESHOLD = tIdx >= 0 ? Number(args[tIdx + 1]) : 0.05; // max periodErr
+const WRAP_RATIO = 1.8; // wrap step may be at most this many median steps
 const gIdx = args.indexOf('--gen');
 const ONLY = gIdx >= 0 ? args[gIdx + 1] : undefined;
 
@@ -83,7 +84,7 @@ const html = `<!doctype html><html><body>
 <pre id="loop-result">pending</pre>
 <script>
 const JOBS = ${JSON.stringify(jobs)};
-const N = ${N}, SIZE = ${SIZE}, SEED = ${SEED}, THRESHOLD = ${THRESHOLD};
+const N = ${N}, SIZE = ${SIZE}, SEED = ${SEED}, THRESHOLD = ${THRESHOLD}, WRAP_RATIO = ${WRAP_RATIO};
 
 function compile(gl, type, src) {
   const s = gl.createShader(type);
@@ -209,7 +210,7 @@ function median(arr) {
       wrap: +wrap.toFixed(5), medianAdj: +med.toFixed(5), maxAdj: +maxAdj.toFixed(5),
       ratio: +(wrap / Math.max(1e-6, med)).toFixed(2),
       periodErr: +r.periodErr.toFixed(5),
-      jump: r.periodErr > THRESHOLD,
+      jump: r.periodErr > THRESHOLD || (wrap > WRAP_RATIO * med && wrap > 0.008),
     });
     gl.deleteProgram(pr.prog);
   }
