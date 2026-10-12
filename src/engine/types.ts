@@ -49,8 +49,7 @@ export type ParamDef =
   | SelectParamDef
   | GradientParamDef;
 
-export type ParamValue = number | string | boolean;
-export type Params = Record<string, ParamValue>;
+export type ParamValue = number | string | boolean;export type Params = Record<string, ParamValue>;
 
 export interface Rng {
   /** Uniform float in [0, 1). */
@@ -143,4 +142,39 @@ export interface Palette {
   /** 3-8 hex colors, e.g. ["#0b1026", ...]. */
   readonly colors: readonly string[];
   readonly harmony: Harmony;
+}
+
+/* ---- layers ---- */
+
+export type BlendMode =
+  | 'normal'
+  | 'add'
+  | 'screen'
+  | 'multiply'
+  | 'overlay'
+  | 'soft-light'
+  | 'difference';
+
+export const BLEND_MODES: readonly BlendMode[] = [
+  'normal',
+  'add',
+  'screen',
+  'multiply',
+  'overlay',
+  'soft-light',
+  'difference',
+];
+
+/** One entry in the mix stack. Layer 0 is the base; later layers blend on top. */
+export interface Layer {
+  readonly id: string;
+  readonly generatorId: string;
+  readonly params: Params;
+  readonly seed: number;
+  /** 0..1 */
+  readonly opacity: number;
+  readonly blend: BlendMode;
+  readonly visible: boolean;
+  /** Solo: when any layer is soloed, only soloed layers render. */
+  readonly solo: boolean;
 }

@@ -52,7 +52,20 @@ export function HistoryPanel() {
   const exportJson = (): void => {
     const s = useAppStore.getState();
     const blob = new Blob(
-      [JSON.stringify({ seed: s.seed, generatorId: s.generatorId, params: s.params, post: s.post }, null, 2)],
+      [
+        JSON.stringify(
+          {
+            seed: s.seed,
+            generatorId: s.generatorId,
+            params: s.params,
+            post: s.post,
+            layers: s.layers,
+            activeLayer: s.activeLayer,
+          },
+          null,
+          2,
+        ),
+      ],
       { type: 'application/json' },
     );
     const a = document.createElement('a');
@@ -74,7 +87,14 @@ export function HistoryPanel() {
 
   const copyShare = async (): Promise<void> => {
     const s = useAppStore.getState();
-    const h = encodeShare({ seed: s.seed, generatorId: s.generatorId, params: s.params, post: s.post });
+    const h = encodeShare({
+      seed: s.seed,
+      generatorId: s.generatorId,
+      params: s.params,
+      post: s.post,
+      layers: s.layers,
+      activeLayer: s.activeLayer,
+    });
     const url = `${location.origin}${location.pathname}#${h}`;
     try {
       await navigator.clipboard.writeText(url);
@@ -90,7 +110,14 @@ export function HistoryPanel() {
       setMsg('No share in URL');
       return;
     }
-    useAppStore.getState().loadSnapshot({ seed: p.s, generatorId: p.g, params: p.p, post: p.post });
+    useAppStore.getState().loadSnapshot({
+      seed: p.s,
+      generatorId: p.g,
+      params: p.p,
+      post: p.post,
+      layers: p.layers,
+      activeLayer: p.activeLayer,
+    });
     setMsg('Loaded from URL');
   };
 

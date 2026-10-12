@@ -3,6 +3,7 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { COMMON_GLSL } from '../src/engine/glsl_common.ts';
 import { FULLSCREEN_VERT } from '../src/engine/gl.ts';
+import { COMPOSITE_FRAG } from '../src/engine/composite.ts';
 import { POST_FRAG } from '../src/engine/post.ts';
 import { listGenerators } from '../src/engine/registry.ts';
 import '../src/engine/generators/index.ts';
@@ -18,6 +19,7 @@ uniform float u_time;
 mkdirSync('/tmp/opencode/shaders', { recursive: true });
 writeFileSync('/tmp/opencode/shaders/fullscreen.vert', FULLSCREEN_VERT);
 writeFileSync('/tmp/opencode/shaders/post.frag', POST_FRAG);
+writeFileSync('/tmp/opencode/shaders/composite.frag', COMPOSITE_FRAG);
 for (const g of listGenerators()) {
   if (!g.fragmentShader) continue; // scene3d generators render via three.js
   writeFileSync(`/tmp/opencode/shaders/${g.id}.frag`, HEADER + COMMON_GLSL + g.fragmentShader);

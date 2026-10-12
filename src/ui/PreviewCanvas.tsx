@@ -223,6 +223,16 @@ export function PreviewCanvas() {
   const playing = useAppStore((s) => s.playing);
   const contextLost = useAppStore((s) => s.contextLost);
   const error = useAppStore((s) => s.error);
+  const layers = useAppStore((s) => s.layers);
+
+  // Mix stack: the 2D renderer composites every layer each frame. A single
+  // layer composites identically to the fast path (over black).
+  useEffect(() => {
+    const b = backendRef.current;
+    if (b.kind !== 'shader2d' || !b.renderer2d) return;
+    b.renderer2d.setLayers(layers);
+    b.renderer2d.renderPhase(useAppStore.getState().phase);
+  }, [layers]);
 
   useEffect(() => {
     const b = backendRef.current;

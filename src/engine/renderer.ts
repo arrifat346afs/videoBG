@@ -3,11 +3,14 @@
 
 import { createFullscreenPass, createGL, createProgram, FULLSCREEN_VERT } from './gl.ts';
 import { COMMON_GLSL } from './glsl_common.ts';
+import { COMPOSITE_FRAG, blendIndex } from './composite.ts';
 import { decodeGradient, gradientUniforms, migrateParams } from './gradient.ts';
 import type { GradientStops } from './gradient.ts';
+import { visibleLayers } from './layers.ts';
+import { getGenerator } from './registry.ts';
 import { PingPong } from './pingpong.ts';
 import { DEFAULT_POST, POST_FRAG, type PostSettings } from './post.ts';
-import type { Generator, Params } from './types.ts';
+import type { Generator, Layer, Params } from './types.ts';
 import { hexToRgb01 } from './palettes.ts';
 
 export interface RendererEvents {
@@ -42,6 +45,17 @@ export class Renderer {
   private locs = new Map<string, WebGLUniformLocation | null>();
   private postProg: WebGLProgram | null = null;
   private postLocs = new Map<string, WebGLUniformLocation | null>();
+  private compProg: WebGLProgram | null = null;
+  private compLocs = new Map<string, WebGLUniformLocation | null>();
+  private layerFbo: WebGLFramebuffer | null = null;
+  private layerTex: WebGLTexture | null = null;
+  private layerW = 0;
+  private layerH = 0;
+  private accum: PingPong | null = null;
+  private progs = new Map<string, { prog: WebGLProgram; locs: Map<string, WebGLUniformLocation | null> }>();
+  private layers: readonly Layer[] = [];
+  private layerSources = new Map<string, TexImageSource>();
+  private outputTex: WebGLTexture | null = null;
   private sceneFbo: WebGLFramebuffer | null = null;
   private sceneTex: WebGLTexture | null = null;
   private sceneW = 0;
@@ -76,13 +90,22 @@ export class Renderer {
           this.lost = false;
           this.prog = null;
           this.postProg = null;
+          this.compProg = null;
           this.sceneFbo = null;
           this.sceneTex = null;
+          this.layerFbo = null;
+          this.layerTex = null;
           this.sceneW = 0;
           this.sceneH = 0;
+          this.layerW = 0;
+          this.layerH = 0;
+          this.accum = null;
+          this.outputTex = null;
+          this.progs.clear();
           this.progGenId = '';
           this.locs.clear();
           this.postLocs.clear();
+          this.compLocs.clear();
           // GL object handles (incl. the fullscreen pass) are invalid after a
           // restore and must be recreated, not just un-cached.
           const gl = this.gl;
@@ -155,6 +178,17 @@ export class Renderer {
     this.seed = seed >>> 0;
   }
 
+  /** Set the mix stack. When non-empty, renderPhase composites these layers. */
+  setLayers(layers: readonly Layer[]): void {
+    this.layers = layers;
+  }
+
+  /** Provide an external pixel source (e.g. the scene3d canvas) for a layer id. */
+  setLayerSource(id: string, source: TexImageSource | null): void {
+    if (source) this.layerSources.set(id, source);
+    else this.layerSources.delete(id);
+  }
+
   setQuality(q: number): void {
     this.quality = Math.min(1, Math.max(0.15, q));
     this.resizeToClient();
@@ -187,69 +221,51 @@ export class Renderer {
     return this.pingpong;
   }
 
-  /** Deterministic single-frame render. phase in [0, 1). Generator -> scene FBO -> post -> screen. */
+  /** Deterministic single-frame render. phase in [0, 1). Layer stack -> composite -> post -> screen. */
   renderPhase(phase: number): void {
     const gl = this.gl;
-    const gen = this.gen;
-    if (!gl || !gen || this.lost || this.disposed || !this.pass) return;
-    this.ensureProgram(gen);
+    if (!gl || this.lost || this.disposed || !this.pass) return;
     this.ensurePost();
-    this.ensureScene(gl);
-    if (!this.prog || !this.postProg || !this.sceneFbo || !this.sceneTex) return;
+    if (!this.postProg) return;
     const p = phase - Math.floor(phase);
     const seed01 = (this.seed >>> 0) / 4294967296;
     const W = this.canvas.width;
     const H = this.canvas.height;
+    if (this.layers.length > 0) {
+      if (!this.renderLayerStack(gl, p, W, H)) return;
+    } else {
+      const gen = this.gen;
+      if (!gen || !this.renderSingle(gl, gen, p, seed01, W, H)) return;
+    }
+    this.runPost(gl, p, seed01, W, H);
+  }
 
-    // Pass 1: generator into scene texture.
+  private renderSingle(
+    gl: WebGL2RenderingContext,
+    gen: Generator,
+    p: number,
+    seed01: number,
+    W: number,
+    H: number,
+  ): boolean {
+    this.ensureProgram(gen);
+    this.ensureScene(gl);
+    if (!this.prog || !this.locs || !this.sceneFbo) return false;
     gl.bindFramebuffer(gl.FRAMEBUFFER, this.sceneFbo);
     gl.viewport(0, 0, W, H);
-    gl.useProgram(this.prog);
-    this.setUniform('u_resolution', () => {
-      const l = this.loc('u_resolution');
-      if (l) gl.uniform2f(l, W, H);
-    });
-    this.setUniform('u_phase', () => {
-      const l = this.loc('u_phase');
-      if (l) gl.uniform1f(l, p);
-    });
-    this.setUniform('u_seed', () => {
-      const l = this.loc('u_seed');
-      if (l) gl.uniform1f(l, seed01);
-    });
-    this.setUniform('u_time', () => {
-      const l = this.loc('u_time');
-      if (l) gl.uniform1f(l, p * TAU_F);
-    });
-    for (const def of gen.paramSchema) {
-      const v = this.params[def.key] ?? def.defaultValue;
-      const name = `u_${def.key}`;
-      if (def.kind === 'number' && typeof v === 'number') {
-        const l = this.loc(name);
-        if (l) gl.uniform1f(l, v);
-      } else if (def.kind === 'color' && typeof v === 'string') {
-        const l = this.loc(name);
-        if (l) {
-          try {
-            const [r, g, b] = hexToRgb01(v);
-            gl.uniform3f(l, r ?? 0, g ?? 0, b ?? 0);
-          } catch {
-            gl.uniform3f(l, 1, 0, 1);
-          }
-        }
-      } else if (def.kind === 'boolean' && typeof v === 'boolean') {
-        const l = this.loc(name);
-        if (l) gl.uniform1i(l, v ? 1 : 0);
-      } else if (def.kind === 'select' && typeof v === 'string') {
-        const l = this.loc(name);
-        if (l) gl.uniform1i(l, def.options.indexOf(v));
-      } else if (def.kind === 'gradient') {
-        this.setGradientUniforms(decodeGradient(v));
-      }
-    }
-    this.pass.draw(gl);
+    this.bindGenerator(gl, gen, this.params, this.prog, this.locs, W, H, p, seed01);
+    this.pass?.draw(gl);
+    this.outputTex = this.sceneTex;
+    return true;
+  }
 
-    // Pass 2: post to screen.
+  private runPost(
+    gl: WebGL2RenderingContext,
+    p: number,
+    seed01: number,
+    W: number,
+    H: number,
+  ): void {
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
     gl.viewport(0, 0, W, H);
     gl.useProgram(this.postProg);
@@ -259,7 +275,7 @@ export class Renderer {
       return this.postLocs.get(n);
     };
     gl.activeTexture(gl.TEXTURE0);
-    gl.bindTexture(gl.TEXTURE_2D, this.sceneTex);
+    gl.bindTexture(gl.TEXTURE_2D, this.outputTex ?? this.sceneTex);
     const lScene = pl('u_scene');
     if (lScene) gl.uniform1i(lScene, 0);
     const lRes = pl('u_resolution');
@@ -279,35 +295,152 @@ export class Renderer {
     set1('u_vignette', this.post.vignette);
     set1('u_chromAb', this.post.chromAb);
     set1('u_posterize', this.post.posterize);
-    this.pass.draw(gl);
+    this.pass?.draw(gl);
     gl.bindTexture(gl.TEXTURE_2D, null);
   }
 
-  private setUniform(_key: string, fn: () => void): void {
-    fn();
-  }
+  /** Render each 2D layer to a scratch texture, then blend into the accumulation. */
+  private renderLayerStack(gl: WebGL2RenderingContext, p: number, W: number, H: number): boolean {
+    this.ensureComposite();
+    this.ensureLayer(gl);
+    this.ensureAccum(gl);
+    if (!this.compProg || !this.layerFbo || !this.layerTex || !this.accum) return false;
 
-  private setGradientUniforms(grad: GradientStops): void {
-    const gl = this.gl;
-    if (!gl) return;
-    const gu = gradientUniforms(grad);
-    const lc = this.loc('u_gradCol');
-    if (lc) gl.uniform3fv(lc, gu.colors);
-    const lp = this.loc('u_gradPos');
-    if (lp) gl.uniform1fv(lp, gu.positions);
-    const ln = this.loc('u_gradCount');
-    if (ln) gl.uniform1i(ln, gu.count);
-    const lm = this.loc('u_gradMode');
-    if (lm) gl.uniform1i(lm, gu.mode);
-  }
+    gl.bindFramebuffer(gl.FRAMEBUFFER, this.accum.writeFbo);
+    gl.clearColor(0, 0, 0, 1);
+    gl.clear(gl.COLOR_BUFFER_BIT);
+    this.accum.swap();
 
-  private loc(name: string): WebGLUniformLocation | null | undefined {
-    const gl = this.gl;
-    if (!gl || !this.prog) return null;
-    if (!this.locs.has(name)) {
-      this.locs.set(name, gl.getUniformLocation(this.prog, name));
+    const list = visibleLayers(this.layers);
+    let any = false;
+    for (const layer of list) {
+      const gen = getGenerator(layer.generatorId);
+      const src = this.layerSources.get(layer.id);
+      if (gen && gen.fragmentShader) {
+        this.ensureProgram(gen);
+        if (!this.prog || !this.locs) continue;
+        gl.bindFramebuffer(gl.FRAMEBUFFER, this.layerFbo);
+        gl.viewport(0, 0, W, H);
+        const lseed = (layer.seed >>> 0) / 4294967296;
+        this.bindGenerator(gl, gen, layer.params, this.prog, this.locs, W, H, p, lseed);
+        this.pass?.draw(gl);
+      } else if (src) {
+        gl.bindFramebuffer(gl.FRAMEBUFFER, this.layerFbo);
+        gl.viewport(0, 0, W, H);
+        gl.activeTexture(gl.TEXTURE0);
+        gl.bindTexture(gl.TEXTURE_2D, this.layerTex);
+        gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
+        try {
+          gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, gl.RGBA, gl.UNSIGNED_BYTE, src);
+        } catch {
+          gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
+          gl.bindTexture(gl.TEXTURE_2D, null);
+          continue;
+        }
+        gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
+        gl.bindTexture(gl.TEXTURE_2D, null);
+      } else {
+        continue;
+      }
+
+      gl.bindFramebuffer(gl.FRAMEBUFFER, this.accum.writeFbo);
+      gl.viewport(0, 0, W, H);
+      gl.useProgram(this.compProg);
+      gl.activeTexture(gl.TEXTURE0);
+      gl.bindTexture(gl.TEXTURE_2D, this.accum.readTexture);
+      const lb = this.compLoc(gl, 'u_base');
+      if (lb) gl.uniform1i(lb, 0);
+      gl.activeTexture(gl.TEXTURE1);
+      gl.bindTexture(gl.TEXTURE_2D, this.layerTex);
+      const ll = this.compLoc(gl, 'u_layer');
+      if (ll) gl.uniform1i(ll, 1);
+      const lo = this.compLoc(gl, 'u_opacity');
+      if (lo) gl.uniform1f(lo, Math.max(0, Math.min(1, layer.opacity)));
+      const lbl = this.compLoc(gl, 'u_blend');
+      if (lbl) gl.uniform1i(lbl, blendIndex(layer.blend));
+      this.pass?.draw(gl);
+      gl.activeTexture(gl.TEXTURE0);
+      gl.bindTexture(gl.TEXTURE_2D, null);
+      gl.activeTexture(gl.TEXTURE1);
+      gl.bindTexture(gl.TEXTURE_2D, null);
+      this.accum.swap();
+      any = true;
     }
-    return this.locs.get(name);
+    this.outputTex = any ? this.accum.readTexture : this.sceneTex;
+    return true;
+  }
+
+  private bindGenerator(
+    gl: WebGL2RenderingContext,
+    gen: Generator,
+    params: Params,
+    prog: WebGLProgram,
+    locs: Map<string, WebGLUniformLocation | null>,
+    W: number,
+    H: number,
+    p: number,
+    seed01: number,
+  ): void {
+    gl.useProgram(prog);
+    const loc = (n: string): WebGLUniformLocation | null | undefined => {
+      if (!locs.has(n)) locs.set(n, gl.getUniformLocation(prog, n));
+      return locs.get(n);
+    };
+    const lRes = loc('u_resolution');
+    if (lRes) gl.uniform2f(lRes, W, H);
+    const lPh = loc('u_phase');
+    if (lPh) gl.uniform1f(lPh, p);
+    const lSeed = loc('u_seed');
+    if (lSeed) gl.uniform1f(lSeed, seed01);
+    const lTime = loc('u_time');
+    if (lTime) gl.uniform1f(lTime, p * TAU_F);
+    for (const def of gen.paramSchema) {
+      const v = params[def.key] ?? def.defaultValue;
+      const name = `u_${def.key}`;
+      if (def.kind === 'number' && typeof v === 'number') {
+        const l = loc(name);
+        if (l) gl.uniform1f(l, v);
+      } else if (def.kind === 'color' && typeof v === 'string') {
+        const l = loc(name);
+        if (l) {
+          try {
+            const [r, g, b] = hexToRgb01(v);
+            gl.uniform3f(l, r ?? 0, g ?? 0, b ?? 0);
+          } catch {
+            gl.uniform3f(l, 1, 0, 1);
+          }
+        }
+      } else if (def.kind === 'boolean' && typeof v === 'boolean') {
+        const l = loc(name);
+        if (l) gl.uniform1i(l, v ? 1 : 0);
+      } else if (def.kind === 'select' && typeof v === 'string') {
+        const l = loc(name);
+        if (l) gl.uniform1i(l, def.options.indexOf(v));
+      } else if (def.kind === 'gradient') {
+        this.setGradientUniforms(gl, prog, locs, decodeGradient(v));
+      }
+    }
+  }
+
+  private setGradientUniforms(
+    gl: WebGL2RenderingContext,
+    prog: WebGLProgram,
+    locs: Map<string, WebGLUniformLocation | null>,
+    grad: GradientStops,
+  ): void {
+    const gu = gradientUniforms(grad);
+    const loc = (n: string): WebGLUniformLocation | null | undefined => {
+      if (!locs.has(n)) locs.set(n, gl.getUniformLocation(prog, n));
+      return locs.get(n);
+    };
+    const lc = loc('u_gradCol');
+    if (lc) gl.uniform3fv(lc, gu.colors);
+    const lp = loc('u_gradPos');
+    if (lp) gl.uniform1fv(lp, gu.positions);
+    const ln = loc('u_gradCount');
+    if (ln) gl.uniform1i(ln, gu.count);
+    const lm = loc('u_gradMode');
+    if (lm) gl.uniform1i(lm, gu.mode);
   }
 
   private ensurePost(): void {
@@ -350,15 +483,77 @@ export class Renderer {
     const gl = this.gl;
     if (!gl) return;
     if (this.prog && this.progGenId === gen.id) return;
-    try {
-      if (this.prog) gl.deleteProgram(this.prog);
-      this.prog = createProgram(gl, FULLSCREEN_VERT, SHADER_HEADER + COMMON_GLSL + gen.fragmentShader);
+    const hit = this.progs.get(gen.id);
+    if (hit) {
+      this.prog = hit.prog;
+      this.locs = hit.locs;
       this.progGenId = gen.id;
-      this.locs.clear();
+      return;
+    }
+    if (!gen.fragmentShader) return;
+    try {
+      const prog = createProgram(gl, FULLSCREEN_VERT, SHADER_HEADER + COMMON_GLSL + gen.fragmentShader);
+      const locs = new Map<string, WebGLUniformLocation | null>();
+      this.progs.set(gen.id, { prog, locs });
+      this.prog = prog;
+      this.locs = locs;
+      this.progGenId = gen.id;
     } catch (e) {
       this.prog = null;
       this.events.onError?.(e instanceof Error ? e.message : String(e));
     }
+  }
+
+  private ensureComposite(): void {
+    const gl = this.gl;
+    if (!gl || this.compProg) return;
+    try {
+      this.compProg = createProgram(gl, FULLSCREEN_VERT, COMPOSITE_FRAG);
+      this.compLocs.clear();
+    } catch (e) {
+      this.compProg = null;
+      this.events.onError?.(e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  private compLoc(gl: WebGL2RenderingContext, name: string): WebGLUniformLocation | null | undefined {
+    if (!this.compProg) return null;
+    if (!this.compLocs.has(name)) {
+      this.compLocs.set(name, gl.getUniformLocation(this.compProg, name));
+    }
+    return this.compLocs.get(name);
+  }
+
+  /** Full-res scratch target used to render a single layer before compositing. */
+  private ensureLayer(gl: WebGL2RenderingContext): void {
+    const W = Math.max(2, this.canvas.width);
+    const H = Math.max(2, this.canvas.height);
+    if (this.layerFbo && this.layerTex && W === this.layerW && H === this.layerH) return;
+    if (this.layerFbo) gl.deleteFramebuffer(this.layerFbo);
+    if (this.layerTex) gl.deleteTexture(this.layerTex);
+    const tex = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, tex);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, W, H, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    const fbo = gl.createFramebuffer();
+    gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
+    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, tex, 0);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    gl.bindTexture(gl.TEXTURE_2D, null);
+    this.layerTex = tex;
+    this.layerFbo = fbo;
+    this.layerW = W;
+    this.layerH = H;
+  }
+
+  private ensureAccum(gl: WebGL2RenderingContext): void {
+    const W = Math.max(2, this.canvas.width);
+    const H = Math.max(2, this.canvas.height);
+    if (!this.accum) this.accum = new PingPong(gl, W, H);
+    else this.accum.resize(W, H);
   }
 
   /**
@@ -376,8 +571,16 @@ export class Renderer {
     if (gl) {
       if (this.prog) gl.deleteProgram(this.prog);
       if (this.postProg) gl.deleteProgram(this.postProg);
+      if (this.compProg) gl.deleteProgram(this.compProg);
+      for (const { prog } of this.progs.values()) {
+        if (prog !== this.prog) gl.deleteProgram(prog);
+      }
+      this.progs.clear();
       if (this.sceneFbo) gl.deleteFramebuffer(this.sceneFbo);
       if (this.sceneTex) gl.deleteTexture(this.sceneTex);
+      if (this.layerFbo) gl.deleteFramebuffer(this.layerFbo);
+      if (this.layerTex) gl.deleteTexture(this.layerTex);
+      this.accum?.dispose();
       this.pass?.dispose(gl);
       this.pingpong?.dispose();
       // Free the browser's WebGL context slot deterministically so

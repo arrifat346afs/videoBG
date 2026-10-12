@@ -1,7 +1,7 @@
 import { BufferTarget, Mp4OutputFormat, Output, VideoSample, VideoSampleSource } from 'mediabunny';
 import { DEFAULT_POST, type PostSettings } from '../engine/post.ts';
 import { Renderer } from '../engine/renderer.ts';
-import { isScene3D, type Generator, type Params, type Scene3DHandle } from '../engine/types.ts';
+import { isScene3D, type Generator, type Layer, type Params, type Scene3DHandle } from '../engine/types.ts';
 import type { ExportProgress, ExportRequest } from './types.ts';
 
 export interface OfflineRenderCtx {
@@ -45,12 +45,15 @@ export function prepareOffline(
   params: Params,
   seed: number,
   post?: PostSettings,
+  layers?: readonly Layer[],
 ): void {
   if (ctx.renderer) {
     ctx.renderer.setGenerator(gen);
     ctx.renderer.setParams(params);
     ctx.renderer.setSeed(seed);
     if (post) ctx.renderer.setPost(post);
+    // Composite the mix stack when there is more than one layer.
+    ctx.renderer.setLayers(layers && layers.length > 1 ? layers : []);
   }
 }
 
@@ -87,13 +90,14 @@ export async function exportMp4(
   onProgress: (p: ExportProgress) => void,
   signal: AbortSignal,
   post?: PostSettings,
+  layers?: readonly Layer[],
 ): Promise<Blob> {
   let ctx: OfflineRenderCtx | null = null;
   try {
     ctx = createOfflineRenderer(req.width, req.height, (m) => {
       throw new Error(m);
     }, gen);
-    prepareOffline(ctx, gen, params, seed, post);
+    prepareOffline(ctx, gen, params, seed, post, layers);
     const output = new Output({
       format: new Mp4OutputFormat({ fastStart: 'in-memory' }),
       target: new BufferTarget(),

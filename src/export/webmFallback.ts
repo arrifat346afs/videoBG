@@ -1,7 +1,7 @@
 // MediaRecorder WebM fallback when WebCodecs is unavailable.
 // Best-effort real-time capture (not frame-accurate like the MP4 path).
 import { DEFAULT_POST, type PostSettings } from '../engine/post.ts';
-import { isScene3D, type Generator, type Params } from '../engine/types.ts';
+import { isScene3D, type Generator, type Layer, type Params } from '../engine/types.ts';
 import type { ExportProgress, ExportRequest } from './types.ts';
 import { createOfflineRenderer, prepareOffline } from './mp4.ts';
 
@@ -26,12 +26,13 @@ export async function exportWebmFallback(
   onProgress: (p: ExportProgress) => void,
   signal: AbortSignal,
   post?: PostSettings,
+  layers?: readonly Layer[],
 ): Promise<Blob> {
   const ctx = createOfflineRenderer(req.width, req.height, (m) => {
     throw new Error(m);
   }, gen);
   try {
-    prepareOffline(ctx, gen, params, seed, post);
+    prepareOffline(ctx, gen, params, seed, post, layers);
     const stream = ctx.canvas.captureStream(req.fps);
     const mimeType = pickMime();
     const rec = new MediaRecorder(stream, {

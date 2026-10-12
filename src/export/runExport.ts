@@ -79,8 +79,8 @@ export async function startExport(): Promise<void> {
 
   try {
     const blob = useMp4
-      ? await exportMp4(req, gen, st.params, st.seed, onProgress, ctrl.signal, st.post)
-      : await exportWebmFallback(req, gen, st.params, st.seed, onProgress, ctrl.signal, st.post);
+      ? await exportMp4(req, gen, st.params, st.seed, onProgress, ctrl.signal, st.post, st.layers)
+      : await exportWebmFallback(req, gen, st.params, st.seed, onProgress, ctrl.signal, st.post, st.layers);
     if (ctrl.signal.aborted) return;
     const ext = useMp4 ? 'mp4' : 'webm';
     const name = `${sanitizeFilename(st.exportFilename)}.${ext}`;

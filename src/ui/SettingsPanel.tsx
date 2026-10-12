@@ -67,6 +67,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { ColorPicker } from '@/components/ui/color-picker';
 import { cn } from '@/lib/utils';
 import { useAppStore, type ExportFormat } from './store.ts';
+import { LayersPanel } from './LayersPanel.tsx';
 
 /* ---------- small building blocks (shadcn) ---------- */
 
@@ -526,6 +527,9 @@ export function SettingsPanel() {
           </Tooltip>
         </div>
       </Section>
+
+      {/* Layers / mix */}
+      <LayersPanel />
 
       {/* Motion */}
       <Section

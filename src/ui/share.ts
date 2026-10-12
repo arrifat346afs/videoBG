@@ -1,6 +1,7 @@
-// Shareable URL encoding: seed + generator + params + post in location.hash.
+// Shareable URL encoding: seed + generator + params + post (+ optional mix
+// stack) in location.hash. Legacy payloads without layers still decode.
 import type { PostSettings } from '../engine/post.ts';
-import type { Params } from '../engine/types.ts';
+import type { Layer, Params } from '../engine/types.ts';
 import type { Snapshot } from './store.ts';
 
 export interface SharePayload {
@@ -8,10 +9,20 @@ export interface SharePayload {
   readonly g: string;
   readonly p: Params;
   readonly post: PostSettings;
+  readonly layers?: readonly Layer[];
+  readonly activeLayer?: number;
 }
 
 export function encodeShare(sn: Snapshot): string {
-  const payload: SharePayload = { s: sn.seed, g: sn.generatorId, p: sn.params, post: sn.post };
+  const payload: SharePayload = {
+    s: sn.seed,
+    g: sn.generatorId,
+    p: sn.params,
+    post: sn.post,
+    ...(sn.layers && sn.layers.length > 0
+      ? { layers: sn.layers, activeLayer: sn.activeLayer ?? 0 }
+      : {}),
+  };
   const json = JSON.stringify(payload);
   return btoa(unescape(encodeURIComponent(json))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }

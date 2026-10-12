@@ -16,6 +16,8 @@ if (shared) {
     generatorId: shared.g,
     params: shared.p,
     post: shared.post,
+    layers: shared.layers,
+    activeLayer: shared.activeLayer,
   });
 }
 
