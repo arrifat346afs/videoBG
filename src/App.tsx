@@ -3,7 +3,7 @@ import { PanelRightClose, PanelRightOpen } from 'lucide-react';
 import { PreviewCanvas } from './ui/PreviewCanvas.tsx';
 import { SettingsPanel } from './ui/SettingsPanel.tsx';
 import { BottomBar } from './ui/BottomBar.tsx';
-import { ExportPanel } from './ui/ExportPanel.tsx';
+import { ExportToast } from './ui/ExportToast.tsx';
 import { Variations } from './ui/Variations.tsx';
 import { HistoryPanel } from './ui/HistoryPanel.tsx';
 import { Button } from '@/components/ui/button';
@@ -94,7 +94,7 @@ function App() {
       </div>
 
       <BottomBar />
-      <ExportPanel />
+      <ExportToast />
     </div>
   );
 }

@@ -3,6 +3,8 @@
 
 import { createFullscreenPass, createGL, createProgram, FULLSCREEN_VERT } from './gl.ts';
 import { COMMON_GLSL } from './glsl_common.ts';
+import { decodeGradient, gradientUniforms, migrateParams } from './gradient.ts';
+import type { GradientStops } from './gradient.ts';
 import { PingPong } from './pingpong.ts';
 import { DEFAULT_POST, POST_FRAG, type PostSettings } from './post.ts';
 import type { Generator, Params } from './types.ts';
@@ -133,12 +135,12 @@ export class Renderer {
 
   setGenerator(gen: Generator): void {
     this.gen = gen;
-    this.params = { ...gen.defaultParams };
+    this.params = migrateParams(gen, { ...gen.defaultParams });
     this.ensureProgram(gen);
   }
 
   setParams(params: Params): void {
-    this.params = { ...params };
+    this.params = this.gen ? migrateParams(this.gen, { ...params }) : { ...params };
   }
 
   setPost(post: PostSettings): void {
@@ -241,6 +243,8 @@ export class Renderer {
       } else if (def.kind === 'select' && typeof v === 'string') {
         const l = this.loc(name);
         if (l) gl.uniform1i(l, def.options.indexOf(v));
+      } else if (def.kind === 'gradient') {
+        this.setGradientUniforms(decodeGradient(v));
       }
     }
     this.pass.draw(gl);
@@ -281,6 +285,20 @@ export class Renderer {
 
   private setUniform(_key: string, fn: () => void): void {
     fn();
+  }
+
+  private setGradientUniforms(grad: GradientStops): void {
+    const gl = this.gl;
+    if (!gl) return;
+    const gu = gradientUniforms(grad);
+    const lc = this.loc('u_gradCol');
+    if (lc) gl.uniform3fv(lc, gu.colors);
+    const lp = this.loc('u_gradPos');
+    if (lp) gl.uniform1fv(lp, gu.positions);
+    const ln = this.loc('u_gradCount');
+    if (ln) gl.uniform1i(ln, gu.count);
+    const lm = this.loc('u_gradMode');
+    if (lm) gl.uniform1i(lm, gu.mode);
   }
 
   private loc(name: string): WebGLUniformLocation | null | undefined {

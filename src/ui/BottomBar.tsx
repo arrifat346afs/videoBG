@@ -11,6 +11,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
+import { startExport } from '../export/runExport.ts';
 import { useAppStore } from './store.ts';
 
 function fmtTime(sec: number): string {
@@ -35,7 +36,7 @@ export function BottomBar() {
       } else if (e.key === 'r' || e.key === 'R') {
         useAppStore.getState().randomizeAll();
       } else if (e.key === 'e' || e.key === 'E') {
-        useAppStore.getState().setExportOpen(true);
+        void startExport();
       }
     };
     window.addEventListener('keydown', onKey);
@@ -155,11 +156,11 @@ export function BottomBar() {
         </Badge>
         <Tooltip>
           <TooltipTrigger asChild>
-            <Button id="export-btn" size="sm" onClick={() => useAppStore.getState().setExportOpen(true)}>
+            <Button id="export-btn" size="sm" onClick={() => void startExport()}>
               <Download /> Export
             </Button>
           </TooltipTrigger>
-          <TooltipContent>Export video (E)</TooltipContent>
+          <TooltipContent>Export video (E) — runs in the background</TooltipContent>
         </Tooltip>
       </div>
     </footer>

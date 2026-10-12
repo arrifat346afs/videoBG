@@ -10,6 +10,7 @@ import { FULLSCREEN_VERT } from '../src/engine/gl.ts';
 import { POST_FRAG, DEFAULT_POST } from '../src/engine/post.ts';
 import { getGenerator, listGenerators } from '../src/engine/registry.ts';
 import { hexToRgb01 } from '../src/engine/palettes.ts';
+import { decodeGradient, gradientUniforms } from '../src/engine/gradient.ts';
 import { mulberry32 } from '../src/engine/rng.ts';
 import type { Generator } from '../src/engine/types.ts';
 import '../src/engine/generators/index.ts';
@@ -51,6 +52,13 @@ function gpuUniforms(g: Generator, params: Record<string, unknown>) {
   for (const def of g.paramSchema) {
     const v = params[def.key] ?? def.defaultValue;
     if (def.kind === 'color' && typeof v === 'string') out.push({ name: `u_${def.key}`, kind: 'vec3', value: [...hexToRgb01(v)] });
+    else if (def.kind === 'gradient') {
+      const gu = gradientUniforms(decodeGradient(v));
+      out.push({ name: 'u_gradCol', kind: 'vec3v', value: [Array.from(gu.colors)] });
+      out.push({ name: 'u_gradPos', kind: 'floatv', value: Array.from(gu.positions) });
+      out.push({ name: 'u_gradCount', kind: 'int', value: gu.count });
+      out.push({ name: 'u_gradMode', kind: 'int', value: gu.mode });
+    }
     else if (def.kind === 'select' && typeof v === 'string') out.push({ name: `u_${def.key}`, kind: 'int', value: def.options.indexOf(v) });
     else if (def.kind === 'boolean') out.push({ name: `u_${def.key}`, kind: 'int', value: v ? 1 : 0 });
     else out.push({ name: `u_${def.key}`, kind: 'float', value: Number(v) });
@@ -122,6 +130,8 @@ function program(gl, frag) {
       const set = (n, kind, v) => {
         const l = gl.getUniformLocation(gp, n); if (!l) return;
         if (kind === 'vec3') gl.uniform3f(l, v[0], v[1], v[2]);
+        else if (kind === 'vec3v') gl.uniform3fv(l, v[0]);
+        else if (kind === 'floatv') gl.uniform1fv(l, v);
         else if (kind === 'int') gl.uniform1i(l, v);
         else gl.uniform1f(l, v);
       };

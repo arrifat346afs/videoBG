@@ -24,3 +24,8 @@ export function hexToLinear(hex: string): readonly [number, number, number] {
     srgbChannelToLinear(parseInt(n.slice(4, 6), 16) / 255),
   ];
 }
+
+/** sRGB triple in [0,1] -> linear-srgb triple. */
+export function srgbTripleToLinear(rgb: readonly [number, number, number]): readonly [number, number, number] {
+  return [srgbChannelToLinear(rgb[0]), srgbChannelToLinear(rgb[1]), srgbChannelToLinear(rgb[2])];
+}

@@ -19,6 +19,8 @@ mkdirSync('/tmp/opencode/shaders', { recursive: true });
 writeFileSync('/tmp/opencode/shaders/fullscreen.vert', FULLSCREEN_VERT);
 writeFileSync('/tmp/opencode/shaders/post.frag', POST_FRAG);
 for (const g of listGenerators()) {
+  if (!g.fragmentShader) continue; // scene3d generators render via three.js
   writeFileSync(`/tmp/opencode/shaders/${g.id}.frag`, HEADER + COMMON_GLSL + g.fragmentShader);
 }
-console.log(`wrote ${listGenerators().length} fragment shaders + vert + post`);
+const n = listGenerators().filter((g) => g.fragmentShader).length;
+console.log(`wrote ${n} fragment shaders + vert + post`);

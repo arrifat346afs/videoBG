@@ -14,6 +14,7 @@ import { COMMON_GLSL } from '../src/engine/glsl_common.ts';
 import { FULLSCREEN_VERT } from '../src/engine/gl.ts';
 import { listGenerators } from '../src/engine/registry.ts';
 import { hexToRgb01 } from '../src/engine/palettes.ts';
+import { decodeGradient, gradientUniforms } from '../src/engine/gradient.ts';
 import type { Generator } from '../src/engine/types.ts';
 import '../src/engine/generators/index.ts';
 
@@ -39,9 +40,10 @@ const ONLY = gIdx >= 0 ? args[gIdx + 1] : undefined;
 
 interface GpuUniform {
   name: string;
-  kind: 'float' | 'vec3' | 'int';
-  value: number | number[];
+  kind: 'float' | 'vec3' | 'int' | 'vec3v' | 'floatv';
+  value: number | number[] | number[][];
 }
+
 interface ShaderJob {
   id: string;
   name: string;
@@ -55,6 +57,12 @@ function toGpuUniforms(gen: Generator): GpuUniform[] {
     const v = gen.defaultParams[def.key] ?? def.defaultValue;
     if (def.kind === 'color' && typeof v === 'string') {
       out.push({ name: `u_${def.key}`, kind: 'vec3', value: [...hexToRgb01(v)] });
+    } else if (def.kind === 'gradient') {
+      const gu = gradientUniforms(decodeGradient(v));
+      out.push({ name: 'u_gradCol', kind: 'vec3v', value: [Array.from(gu.colors)] });
+      out.push({ name: 'u_gradPos', kind: 'floatv', value: Array.from(gu.positions) });
+      out.push({ name: 'u_gradCount', kind: 'int', value: gu.count });
+      out.push({ name: 'u_gradMode', kind: 'int', value: gu.mode });
     } else if (def.kind === 'select' && typeof v === 'string') {
       out.push({ name: `u_${def.key}`, kind: 'int', value: def.options.indexOf(v) });
     } else if (def.kind === 'boolean') {
@@ -119,6 +127,8 @@ function renderOne(gl, prog, locs, uniforms, lRes, lPhase, lSeed, lTime, fbo, bu
   for (const u of uniforms) {
     const l = locs[u.name]; if (!l) continue;
     if (u.kind === 'vec3') { const v = u.value; gl.uniform3f(l, v[0], v[1], v[2]); }
+    else if (u.kind === 'vec3v') { gl.uniform3fv(l, u.value[0]); }
+    else if (u.kind === 'floatv') { gl.uniform1fv(l, u.value); }
     else if (u.kind === 'int') gl.uniform1i(l, u.value);
     else gl.uniform1f(l, u.value);
   }

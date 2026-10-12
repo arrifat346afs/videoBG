@@ -4,10 +4,40 @@
 import type { Harmony, Palette, Rng } from './types.ts';
 
 export const PRESET_PALETTES: readonly Palette[] = [
+  // — core five —
   { harmony: 'analogous', colors: ['#0b1026', '#1b2a6b', '#3a86ff', '#83c5be', '#edf2f4'] },
   { harmony: 'complementary', colors: ['#10002b', '#5a189a', '#ff8500', '#ffc300', '#ffffff'] },
   { harmony: 'triadic', colors: ['#03071e', '#dc2f02', '#ffba08', '#1098ad', '#f1fa8c'] },
   { harmony: 'monochrome', colors: ['#0a0a0f', '#23232e', '#4a4a5a', '#9a9ab0', '#e8e8f0'] },
+  // — 24 curated looks —
+  { harmony: 'complementary', colors: ['#0d1b2a', '#1b263b', '#e07a5f', '#f2cc8f', '#f4f1de'] }, // sunset
+  { harmony: 'analogous', colors: ['#031714', '#0b6e4f', '#19c37d', '#57e6b0', '#c7fff0'] }, // aurora
+  { harmony: 'analogous', colors: ['#00131f', '#003049', '#0077b6', '#48cae4', '#caf0f8'] }, // ocean
+  { harmony: 'vibrant', colors: ['#0d0221', '#ff2a6d', '#d100d1', '#05d9e8', '#ffffff'] }, // neon
+  { harmony: 'pastel', colors: ['#2d1b4e', '#fbcfe8', '#c7d2fe', '#a7f3d0', '#fef3c7', '#fff1f2'] }, // pastel candy
+  { harmony: 'tetradic', colors: ['#1b1207', '#6b4f2a', '#a9744f', '#d9b382', '#f0e6d2'] }, // earth
+  { harmony: 'pastel', colors: ['#2d1b4e', '#ff6ec7', '#ffb3e6', '#8be9fd', '#fdfd96'] }, // candy
+  { harmony: 'monochrome', colors: ['#050505', '#1c1c1c', '#3d3d3d', '#7a7a7a', '#d8d8d8'] }, // mono
+  { harmony: 'gradient-ramp', colors: ['#0b132b', '#1c2541', '#3a506b', '#5bc0be', '#6fffe9'] }, // duotone deep
+  { harmony: 'split-complementary', colors: ['#160f0a', '#8c3b2b', '#e08e45', '#3f88c5', '#f6f7eb'] }, // canyon
+  { harmony: 'analogous', colors: ['#012a4a', '#2a6f97', '#61a5c2', '#a9d6e5', '#e0fbfc'] }, // ice
+  { harmony: 'triadic', colors: ['#1a1423', '#3d2c8d', '#ff3864', '#f7b801', '#f4f1de'] }, // retro pop
+  { harmony: 'vibrant', colors: ['#0b0c10', '#ff0055', '#00ffd5', '#ffd300', '#ffffff'] }, // arcade
+  { harmony: 'pastel', colors: ['#2b2d42', '#8d99ae', '#ffcad4', '#b0f2c2', '#f8edeb'] }, // soft
+  { harmony: 'complementary', colors: ['#0a0908', '#22333b', '#c6ac8f', '#eae0d5', '#5e503f'] }, // sepia
+  { harmony: 'gradient-ramp', colors: ['#03045e', '#0077b6', '#00b4d8', '#90e0ef', '#caf0f8'] }, // cyan ramp
+  { harmony: 'tetradic', colors: ['#241023', '#7b2cbf', '#c77dff', '#ff9e00', '#ffea00'] }, // violet gold
+  { harmony: 'analogous', colors: ['#1a1a2e', '#16213e', '#0f3460', '#e94560', '#f5f5f5'] }, // midnight
+  { harmony: 'split-complementary', colors: ['#03312e', '#0fa3a3', '#66d9c4', '#ff6b6b', '#ffe66d'] }, // tropical
+  { harmony: 'pastel', colors: ['#4a4063', '#bfaee0', '#f0c8ff', '#ffd6e0', '#fff5b7'] }, // lavender
+  { harmony: 'vibrant', colors: ['#10002b', '#7b2cbf', '#ff006e', '#ffbe0b', '#fb5607'] }, // magenta heat
+  { harmony: 'monochrome', colors: ['#0b0f14', '#22303f', '#4b6478', '#93a7b8', '#e6edf3'] }, // steel
+  { harmony: 'complementary', colors: ['#021b1a', '#0b525b', '#14919b', '#ff9f1c', '#fdfcdc'] }, // lagoon
+  { harmony: 'gradient-ramp', colors: ['#2b1000', '#7f3300', '#d95f02', '#e6ab02', '#fff2cc'] }, // ember
+  { harmony: 'triadic', colors: ['#0b132b', '#5bc0be', '#f4a259', '#e56b6f', '#f7f7ff'] }, // coral teal
+  { harmony: 'pastel', colors: ['#3d405b', '#81b29a', '#f2cc8f', '#e07a5f', '#f4f1de'] }, // terracotta
+  { harmony: 'vibrant', colors: ['#000814', '#003566', '#ffc300', '#ffd60a', '#ffffff'] }, // cobalt sun
+  { harmony: 'analogous', colors: ['#0f0e17', '#2e294e', '#541388', '#d90368', '#f1e9da'] }, // plum rose
 ];
 
 export function hslToHex(h: number, s: number, l: number): string {
@@ -81,31 +111,94 @@ export function minContrast(colors: readonly string[]): number {
 }
 
 export function generatePalette(rng: Rng, harmony: Harmony = 'random'): Palette {
-  const h: Harmony = harmony === 'random' ? rng.pick(['analogous', 'complementary', 'triadic', 'monochrome'] as const) : harmony;
+  const ALL: readonly Harmony[] = [
+    'analogous',
+    'complementary',
+    'split-complementary',
+    'triadic',
+    'tetradic',
+    'monochrome',
+    'gradient-ramp',
+    'pastel',
+    'vibrant',
+  ];
+  const h: Harmony = harmony === 'random' ? rng.pick(ALL) : harmony;
   const baseHue = rng.range(0, 360);
-  // Tasteful constraints: avoid muddy grays and neon blowouts.
-  const sat = rng.range(0.45, 0.85);
-  const hues = harmonyHues(baseHue, h, rng);
-  const lights = [0.08, 0.22, 0.45, 0.68, 0.9];
-  const colors = hues.slice(0, 5).map((hh, i) => {
+  const count = rng.int(5, 8);
+  const hues = harmonyHues(baseHue, h, rng, count);
+  const lights = SCHEME_LIGHTS[h] ?? SCHEME_LIGHTS['triadic']!;
+  const sat = schemeSaturation(h, rng);
+  const hueJitter = h === 'monochrome' ? 0 : h === 'gradient-ramp' ? 5 : 12;
+  const colors = hues.slice(0, count).map((hh, i) => {
     const ll = lights[i % lights.length] ?? 0.5;
-    const ss = h === 'monochrome' ? rng.range(0.08, 0.25) : sat;
-    return hslToHex(hh, ss, ll + rng.range(-0.03, 0.03));
+    const ss = Math.min(1, Math.max(0, sat + rng.range(-0.05, 0.05)));
+    return hslToHex(hh + rng.range(-hueJitter, hueJitter), ss, Math.min(1, Math.max(0, ll + rng.range(-0.03, 0.03))));
   });
   return { colors, harmony: h };
 }
 
-function harmonyHues(base: number, h: Harmony, rng: Rng): number[] {
+const SCHEME_LIGHTS: Record<string, readonly number[]> = {
+  analogous: [0.08, 0.24, 0.46, 0.68, 0.9, 0.34, 0.56, 0.8],
+  complementary: [0.08, 0.22, 0.45, 0.68, 0.9, 0.32, 0.56, 0.78],
+  'split-complementary': [0.08, 0.24, 0.48, 0.7, 0.9, 0.34, 0.58, 0.8],
+  triadic: [0.1, 0.26, 0.46, 0.66, 0.88, 0.36, 0.56, 0.76],
+  tetradic: [0.08, 0.22, 0.44, 0.64, 0.86, 0.32, 0.54, 0.74],
+  monochrome: [0.06, 0.2, 0.4, 0.6, 0.82, 0.3, 0.5, 0.9],
+  'gradient-ramp': [0.1, 0.28, 0.46, 0.62, 0.78, 0.9, 0.2, 0.7],
+  pastel: [0.82, 0.88, 0.92, 0.84, 0.9, 0.8, 0.94, 0.86],
+  vibrant: [0.62, 0.5, 0.4, 0.56, 0.68, 0.46, 0.72, 0.54],
+};
+
+function schemeSaturation(h: Harmony, rng: Rng): number {
+  switch (h) {
+    case 'monochrome':
+      return rng.range(0.06, 0.2);
+    case 'pastel':
+      return rng.range(0.3, 0.55);
+    case 'vibrant':
+      return rng.range(0.75, 0.95);
+    case 'gradient-ramp':
+      return rng.range(0.5, 0.82);
+    default:
+      return rng.range(0.45, 0.85);
+  }
+}
+
+function harmonyHues(base: number, h: Harmony, rng: Rng, count: number): number[] {
+  let offsets: number[];
   switch (h) {
     case 'analogous':
-      return [base, base + 25, base + 50, base - 25, base + 75];
+      offsets = [0, 22, 44, -22, 66, -44, 88, 110];
+      break;
     case 'complementary':
-      return [base, base, base + 180, base + 180, base + rng.range(20, 40)];
-    case 'triadic':
-      return [base, base + 120, base + 240, base + 60, base + 180];
+      offsets = [0, 180, 180, 20, 200, 340, 160, 40];
+      break;
+    case 'split-complementary':
+      offsets = [0, 150, 210, 15, 165, 195, 30, 180];
+      break;
+    case 'tetradic':
+      offsets = [0, 90, 180, 270, 45, 135, 225, 315];
+      break;
     case 'monochrome':
-      return [base, base, base, base, base];
-    case 'random':
-      return [base, base + 180, base + 90, base + 270, base];
+      offsets = [0, 0, 0, 0, 0, 0, 0, 0];
+      break;
+    case 'gradient-ramp':
+      offsets = [0, 8, 16, 24, 32, 40, 48, 56];
+      break;
+    case 'pastel':
+      offsets = [0, 20, 40, -20, 60, -40, 80, -60];
+      break;
+    case 'vibrant':
+      offsets = [0, 30, 60, 90, 120, 150, 180, 210];
+      break;
+    case 'triadic':
+      offsets = [0, 120, 240, 60, 180, 300, 30, 90];
+      break;
+    default:
+      offsets = [0, 180, 90, 270, 45, 135, 225, 315];
+      break;
   }
+  const hues = offsets.map((o) => base + o);
+  // A little seeded variation so repeats aren't identical, without breaking harmony.
+  return hues.map((x) => x + rng.range(-4, 4)).slice(0, Math.max(5, count));
 }

@@ -34,11 +34,20 @@ export interface SelectParamDef {
   readonly defaultValue: string;
 }
 
+export interface GradientParamDef {
+  readonly kind: 'gradient';
+  readonly key: string;
+  readonly label: string;
+  /** Encoded gradient (see engine/gradient.ts encodeGradient). */
+  readonly defaultValue: string;
+}
+
 export type ParamDef =
   | NumberParamDef
   | ColorParamDef
   | BooleanParamDef
-  | SelectParamDef;
+  | SelectParamDef
+  | GradientParamDef;
 
 export type ParamValue = number | string | boolean;
 export type Params = Record<string, ParamValue>;
@@ -118,10 +127,20 @@ export interface Resolution {
   readonly label: string;
 }
 
-export type Harmony = 'analogous' | 'complementary' | 'triadic' | 'monochrome' | 'random';
+export type Harmony =
+  | 'analogous'
+  | 'complementary'
+  | 'split-complementary'
+  | 'triadic'
+  | 'tetradic'
+  | 'monochrome'
+  | 'gradient-ramp'
+  | 'pastel'
+  | 'vibrant'
+  | 'random';
 
 export interface Palette {
-  /** 3-5 hex colors, e.g. ["#0b1026", ...]. */
+  /** 3-8 hex colors, e.g. ["#0b1026", ...]. */
   readonly colors: readonly string[];
   readonly harmony: Harmony;
 }

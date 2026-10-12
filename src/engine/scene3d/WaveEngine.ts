@@ -14,8 +14,9 @@ import { LineSegmentsGeometry } from 'three/examples/jsm/lines/LineSegmentsGeome
 import { TAU } from '../loop.ts';
 import { mulberry32 } from '../rng.ts';
 import type { Params, Scene3DFrameState, Scene3DHandle } from '../types.ts';
-import { hexToLinear } from './color.ts';
+import { hexToLinear, srgbTripleToLinear } from './color.ts';
 import { frustumCoverage } from './frustum.ts';
+import { decodeGradient, sampleGradient } from '../gradient.ts';
 import { bool, num, str } from './params.ts';
 import { PointsQuads, shapeId } from './pointsQuad.ts';
 import { Scene3DPostShader } from './postPass.ts';
@@ -169,18 +170,31 @@ export class WaveEngine implements Scene3DHandle {
     const darkS = str(params, 'dark', '#050914');
     const aS = str(params, 'a', '#1b2a6b');
     const bS = str(params, 'b', '#3a86ff');
-    const cDark = hex(darkS);
-    const cA = hex(aS);
-    const cB = hex(bS);
-    // Dark gradient backdrop: near-black top, deep tint toward the horizon.
-    // Fog blends toward the horizon color so distance melts into the
-    // background instead of a lifted grey.
-    const top: readonly [number, number, number] = [cDark[0] * 0.25, cDark[1] * 0.25, cDark[2] * 0.25];
-    const horizonC: readonly [number, number, number] = [
-      cDark[0] * 0.75 + cA[0] * 0.25,
-      cDark[1] * 0.75 + cA[1] * 0.25,
-      cDark[2] * 0.75 + cA[2] * 0.25,
-    ];
+    // A gradient param (when present) drives the backdrop + ramp perceptually;
+    // otherwise fall back to the legacy dark/a/b colours so old links look the
+    // same as before.
+    const gradStr = typeof params['gradient'] === 'string' ? params['gradient'] : '';
+    let cDark: readonly [number, number, number];
+    let cA: readonly [number, number, number];
+    let cB: readonly [number, number, number];
+    let top: readonly [number, number, number];
+    let horizonC: readonly [number, number, number];
+    if (gradStr) {
+      const grad = decodeGradient(gradStr);
+      const lin = (t: number): readonly [number, number, number] => srgbTripleToLinear(sampleGradient(grad, t));
+      cDark = lin(0.02);
+      cA = lin(0.5);
+      cB = lin(0.95);
+      top = lin(0.0);
+      horizonC = lin(0.35);
+    } else {
+      cDark = hex(darkS);
+      cA = hex(aS);
+      cB = hex(bS);
+      // Dark gradient backdrop: near-black top, deep tint toward the horizon.
+      top = [cDark[0] * 0.25, cDark[1] * 0.25, cDark[2] * 0.25];
+      horizonC = [cDark[0] * 0.75 + cA[0] * 0.25, cDark[1] * 0.75 + cA[1] * 0.25, cDark[2] * 0.75 + cA[2] * 0.25];
+    }
     (this.bgMat.uniforms['u_top'] as { value: THREE.Color }).value.setRGB(top[0], top[1], top[2]);
     (this.bgMat.uniforms['u_horizon'] as { value: THREE.Color }).value.setRGB(horizonC[0], horizonC[1], horizonC[2]);
     this.scene.background = new THREE.Color(top[0], top[1], top[2]);

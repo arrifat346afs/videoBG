@@ -96,7 +96,7 @@ export function HistoryPanel() {
 
   return (
     <Card className="gap-0 py-0">
-      <CardHeader className="flex-row items-center gap-2 px-3 pt-3 pb-2">
+      <CardHeader className="flex items-center gap-2 px-3 pt-3 pb-2">
         <History className="size-[15px] text-muted-foreground" aria-hidden />
         <CardTitle className="text-sm">History / presets</CardTitle>
         <div className="flex-1" />

@@ -10,11 +10,15 @@ import {
   LockOpen,
   Network,
   Palette,
+  Plus,
   RotateCcw,
   Settings2,
   Shapes,
+  Shuffle,
   SlidersHorizontal,
   Sparkles,
+  TriangleAlert,
+  X,
   type LucideIcon,
 } from 'lucide-react';
 import {
@@ -27,7 +31,21 @@ import {
 } from '../engine/index.ts';
 import { DEFAULT_POST, type PostSettings } from '../engine/post.ts';
 import { PRESET_PALETTES } from '../engine/palettes.ts';
+import {
+  addGradientStop,
+  decodeGradient,
+  encodeGradient,
+  randomizeGradient,
+  removeGradientStop,
+  reverseGradient,
+  setGradientStop,
+  type GradientInterp,
+  type GradientStops,
+} from '../engine/gradient.ts';
+import { mulberry32 } from '../engine/rng.ts';
 import type { Harmony, ResolutionPresetId } from '../engine/types.ts';
+import { supportsWebCodecs } from '../export/types.ts';
+import { startExport } from '../export/runExport.ts';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -48,7 +66,7 @@ import { Separator } from '@/components/ui/separator';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { ColorPicker } from '@/components/ui/color-picker';
 import { cn } from '@/lib/utils';
-import { useAppStore } from './store.ts';
+import { useAppStore, type ExportFormat } from './store.ts';
 
 /* ---------- small building blocks (shadcn) ---------- */
 
@@ -65,7 +83,7 @@ function Section(props: {
   const Icon = props.icon;
   return (
     <Card className="gap-0 overflow-hidden py-0">
-      <CardHeader className="flex-row items-center gap-2 px-3 py-0">
+      <CardHeader className="flex items-center gap-2 px-3 py-0">
         <Button
           variant="ghost"
           className="h-10 flex-1 justify-start gap-2 px-1 font-semibold"
@@ -226,6 +244,94 @@ function ColorRow(props: { name: string; value: string; onChange: (v: string) =>
   );
 }
 
+function GradientRow(props: {
+  name: string;
+  value: string;
+  presets?: string[];
+  onChange: (v: string) => void;
+}) {
+  const grad: GradientStops = decodeGradient(props.value);
+  const stops = [...grad.stops];
+  const setGrad = (next: GradientStops) => props.onChange(encodeGradient(next));
+  const setStop = (i: number, patch: { color?: string; pos?: number }) => setGrad(setGradientStop(grad, i, patch));
+  const preview = `linear-gradient(90deg, ${stops
+    .map((s) => `${s.color} ${Math.round(s.pos * 100)}%`)
+    .join(', ')})`;
+  const addMid = () => {
+    const mid = stops[Math.floor(stops.length / 2)];
+    const pos = mid ? Math.min(0.99, mid.pos + 0.15) : 0.5;
+    setGrad(addGradientStop(grad, mid?.color ?? '#ffffff', pos));
+  };
+  return (
+    <div className="flex flex-col gap-1.5 py-1.5">
+      <div className="flex items-center gap-2">
+        <Label className="flex-1 text-sm text-muted-foreground">{props.name}</Label>
+        <Select value={grad.interp} onValueChange={(v) => setGrad({ stops, interp: v as GradientInterp })}>
+          <SelectTrigger size="sm" className="max-w-[130px]" aria-label="Gradient interpolation">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="rgb">linear RGB</SelectItem>
+            <SelectItem value="smooth">smooth RGB</SelectItem>
+            <SelectItem value="oklab">perceptual (OKLab)</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+      <div className="h-5 w-full rounded-md border" style={{ background: preview }} aria-hidden />
+      <div className="flex flex-col gap-1">
+        {stops.map((s, i) => (
+          <div key={`stop-${i}`} className="flex items-center gap-2">
+            <ColorPicker
+              value={s.color}
+              onChange={(c) => setStop(i, { color: c })}
+              label={`Stop ${i + 1}`}
+              presets={props.presets}
+            />
+            <Slider
+              value={[s.pos]}
+              min={0}
+              max={1}
+              step={0.01}
+              aria-label={`Stop ${i + 1} position`}
+              className="min-w-0 flex-1"
+              onValueChange={([v]) => {
+                if (v !== undefined) setStop(i, { pos: v });
+              }}
+            />
+            <span className="w-8 text-right font-mono text-xs text-muted-foreground">
+              {Math.round(s.pos * 100)}%
+            </span>
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              aria-label={`Remove stop ${i + 1}`}
+              disabled={stops.length <= 2}
+              onClick={() => setGrad(removeGradientStop(grad, i))}
+            >
+              <X className="size-3.5" />
+            </Button>
+          </div>
+        ))}
+      </div>
+      <div className="flex flex-wrap gap-1.5">
+        <Button variant="outline" size="sm" onClick={addMid} disabled={stops.length >= 8}>
+          <Plus /> Add colour
+        </Button>
+        <Button variant="outline" size="sm" onClick={() => setGrad(reverseGradient(grad))}>
+          <RotateCcw /> Reverse
+        </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => setGrad(randomizeGradient(mulberry32((Math.random() * 0xffffffff) >>> 0)))}
+        >
+          <Shuffle /> Randomize
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 /* ---------- panel ---------- */
 
 const POST_DEFS: { key: keyof PostSettings; label: string; min: number; max: number; step: number }[] = [
@@ -249,6 +355,9 @@ export function SettingsPanel() {
   const resolutionId = useAppStore((s) => s.resolutionId);
   const fps = useAppStore((s) => s.fps);
   const durationSec = useAppStore((s) => s.durationSec);
+  const exportStatus = useAppStore((s) => s.exportStatus);
+  const exportFormat = useAppStore((s) => s.exportFormat);
+  const exportFilename = useAppStore((s) => s.exportFilename);
 
   const [open, setOpen] = useState<Record<string, boolean>>({
     style: true,
@@ -268,7 +377,8 @@ export function SettingsPanel() {
   const CATEGORY_ICON: Record<string, LucideIcon> = { Organic: Leaf, Geometric: Shapes, Light: Lightbulb, Network: Network };
   const CurrentCatIcon = (gen ? CATEGORY_ICON[generatorCategory(gen)] : undefined) ?? Sparkles;
   const colorDefs = (gen?.paramSchema ?? []).filter((d) => d.kind === 'color');
-  const otherDefs = (gen?.paramSchema ?? []).filter((d) => d.kind !== 'color');
+  const gradientDefs = (gen?.paramSchema ?? []).filter((d) => d.kind === 'gradient');
+  const otherDefs = (gen?.paramSchema ?? []).filter((d) => d.kind !== 'color' && d.kind !== 'gradient');
 
   const lookSummary =
     `Contrast ${post.contrast.toFixed(2)} · Sat ${post.saturation.toFixed(2)} · ` +
@@ -282,7 +392,7 @@ export function SettingsPanel() {
   const resetPalette = () => {
     if (!gen) return;
     const next = { ...params };
-    for (const d of colorDefs) {
+    for (const d of [...colorDefs, ...gradientDefs]) {
       const pv = gen.defaultParams[d.key];
       if (pv !== undefined) next[d.key] = pv;
     }
@@ -297,12 +407,6 @@ export function SettingsPanel() {
     }
     st.setParams(next);
   };
-
-  const currentColors = colorDefs.map((d) => String(params[d.key] ?? '#ffffff'));
-  const chips: string[][] = [
-    ...PRESET_PALETTES.map((p) => [...p.colors]),
-    currentColors.length > 0 ? currentColors : [...(PRESET_PALETTES[0]?.colors ?? ['#000000'])],
-  ].slice(0, 5);
 
   const applyChip = (colors: string[]) => {
     if (colorDefs.length === 0) return;
@@ -441,28 +545,38 @@ export function SettingsPanel() {
         icon={Palette} title="Color / Palette" open={!!open.palette} onToggle={() => toggle('palette')}
         onReset={resetPalette} resetTitle="Reset palette to style defaults"
       >
-        {colorDefs.length === 0 && <p className="text-sm text-muted-foreground">This style has no editable colors.</p>}
+        {colorDefs.length === 0 && gradientDefs.length === 0 && (
+          <p className="text-sm text-muted-foreground">This style has no editable colors.</p>
+        )}
         {colorDefs.map((d) => (
           <ColorRow key={d.key} name={d.label} value={String(params[d.key] ?? d.defaultValue)}
             presets={allPresetColors} onChange={(v) => st.setParam(d.key, v)} />
         ))}
-        <div className="text-xs text-muted-foreground">Tap a swatch to edit · {chips.length} palette chips below</div>
-        <div className="grid grid-cols-5 gap-1.5 py-1">
-          {chips.map((colors, i) => (
+        {gradientDefs.map((d) => (
+          <GradientRow key={d.key} name={d.label} value={String(params[d.key] ?? d.defaultValue)}
+            presets={allPresetColors} onChange={(v) => st.setParam(d.key, v)} />
+        ))}
+        <div className="text-xs text-muted-foreground">
+          Tap a palette to apply it to this style&apos;s colors · {PRESET_PALETTES.length} presets
+        </div>
+        <div className="grid max-h-56 grid-cols-5 gap-1.5 overflow-y-auto py-1 pr-1">
+          {PRESET_PALETTES.map((p, i) => (
             <Tooltip key={`chip-${i}`}>
               <TooltipTrigger asChild>
                 <button
                   type="button"
-                  onClick={() => applyChip(colors)}
+                  onClick={() => applyChip([...p.colors])}
                   aria-label={`Apply palette ${i + 1}`}
                   className="flex h-[26px] cursor-pointer overflow-hidden rounded-lg border transition-all hover:-translate-y-px hover:border-primary hover:shadow-[0_0_0_1px_var(--ring)] focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
                 >
-                  {colors.slice(0, 5).map((c, j) => (
+                  {p.colors.slice(0, 6).map((c, j) => (
                     <span key={j} className="flex-1" style={{ background: c }} />
                   ))}
                 </button>
               </TooltipTrigger>
-              <TooltipContent>Apply palette {i + 1}: {colors.slice(0, 5).join(', ')}</TooltipContent>
+              <TooltipContent>
+                {String(i + 1).padStart(2, '0')} · {p.harmony}: {p.colors.slice(0, 6).join(', ')}
+              </TooltipContent>
             </Tooltip>
           ))}
         </div>
@@ -476,8 +590,13 @@ export function SettingsPanel() {
               <SelectItem value="random">random</SelectItem>
               <SelectItem value="analogous">analogous</SelectItem>
               <SelectItem value="complementary">complementary</SelectItem>
+              <SelectItem value="split-complementary">split-complementary</SelectItem>
               <SelectItem value="triadic">triadic</SelectItem>
+              <SelectItem value="tetradic">tetradic</SelectItem>
               <SelectItem value="monochrome">monochrome</SelectItem>
+              <SelectItem value="gradient-ramp">gradient-ramp</SelectItem>
+              <SelectItem value="pastel">pastel</SelectItem>
+              <SelectItem value="vibrant">vibrant</SelectItem>
             </SelectContent>
           </Select>
         </div>
@@ -589,15 +708,56 @@ export function SettingsPanel() {
             ))}
           </div>
         </div>
+        <div className="flex min-h-8 items-center gap-2">
+          <Label className="flex-1 text-sm text-muted-foreground">Format</Label>
+          <Select
+            value={exportFormat}
+            onValueChange={(v) => st.setExportFormat(v as ExportFormat)}
+          >
+            <SelectTrigger className="ml-auto max-w-[170px]" aria-label="Export format">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="auto">Auto (best available)</SelectItem>
+              <SelectItem value="mp4">MP4 (WebCodecs)</SelectItem>
+              <SelectItem value="webm">WebM (fallback)</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="flex flex-col gap-1.5">
+          <Label htmlFor="export-name" className="text-sm text-muted-foreground">Filename</Label>
+          <Input
+            id="export-name"
+            value={exportFilename}
+            maxLength={80}
+            onChange={(e) => st.setExportFilename(e.target.value)}
+            placeholder="videobg-export"
+            aria-label="Export filename"
+          />
+        </div>
+        {exportFormat === 'mp4' && !supportsWebCodecs() && (
+          <p className="flex items-center gap-1.5 text-xs text-amber-500">
+            <TriangleAlert className="size-4 shrink-0" /> MP4 needs WebCodecs — this browser will fall back to WebM.
+          </p>
+        )}
+        {exportFormat === 'auto' && !supportsWebCodecs() && (
+          <p className="flex items-center gap-1.5 text-xs text-amber-500">
+            <TriangleAlert className="size-4 shrink-0" /> WebCodecs unavailable — WebM fallback (real-time, best-effort).
+          </p>
+        )}
         <Separator className="my-1" />
         <div className="py-1">
           <Tooltip>
             <TooltipTrigger asChild>
-              <Button className="w-full" onClick={() => st.setExportOpen(true)}>
-                <Download /> Export video…
+              <Button
+                className="w-full"
+                disabled={exportStatus === 'working'}
+                onClick={() => void startExport()}
+              >
+                <Download /> {exportStatus === 'working' ? 'Exporting…' : 'Start export'}
               </Button>
             </TooltipTrigger>
-            <TooltipContent>Open export dialog (E)</TooltipContent>
+            <TooltipContent>Start export (E) — runs in the background</TooltipContent>
           </Tooltip>
         </div>
         <div className="flex flex-wrap gap-1.5">

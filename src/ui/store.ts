@@ -13,6 +13,14 @@ export interface Snapshot {
   readonly post: PostSettings;
 }
 
+export type ExportFormat = 'auto' | 'mp4' | 'webm';
+export type ExportStatus = 'idle' | 'working' | 'done' | 'error';
+
+export interface ExportDownload {
+  readonly url: string;
+  readonly name: string;
+}
+
 interface AppState {
   readonly seed: number;
   readonly seedLocked: boolean;
@@ -30,7 +38,14 @@ interface AppState {
   readonly panelRev: number;
   readonly error: string | null;
   readonly contextLost: boolean;
-  readonly exportOpen: boolean;
+  readonly exportStatus: ExportStatus;
+  readonly exportFrame: number;
+  readonly exportTotal: number;
+  readonly exportFormatLabel: string;
+  readonly exportError: string | null;
+  readonly exportDownload: ExportDownload | null;
+  readonly exportFormat: ExportFormat;
+  readonly exportFilename: string;
   readonly past: readonly Snapshot[];
   readonly future: readonly Snapshot[];
   readonly favorites: readonly Snapshot[];
@@ -57,7 +72,13 @@ interface AppState {
   setLoop: (v: boolean) => void;
   setError: (msg: string | null) => void;
   setContextLost: (v: boolean) => void;
-  setExportOpen: (v: boolean) => void;
+  setExportWorking: (formatLabel: string, total: number) => void;
+  setExportProgress: (frame: number, total: number) => void;
+  setExportDone: (download: ExportDownload) => void;
+  setExportError: (msg: string) => void;
+  resetExport: () => void;
+  setExportFormat: (format: ExportFormat) => void;
+  setExportFilename: (name: string) => void;
   undo: () => void;
   redo: () => void;
   toggleFavorite: () => void;
@@ -106,7 +127,14 @@ export const useAppStore = create<AppState>()((set) => ({
   panelRev: 0,
   error: null,
   contextLost: false,
-  exportOpen: false,
+  exportStatus: 'idle',
+  exportFrame: 0,
+  exportTotal: 0,
+  exportFormatLabel: '',
+  exportError: null,
+  exportDownload: null,
+  exportFormat: 'auto',
+  exportFilename: 'videobg-export',
   past: [],
   future: [],
   favorites: [],
@@ -190,7 +218,29 @@ export const useAppStore = create<AppState>()((set) => ({
   setLoop: (v) => set({ loop: v }),
   setError: (msg) => set({ error: msg }),
   setContextLost: (v) => set({ contextLost: v }),
-  setExportOpen: (v) => set({ exportOpen: v }),
+  setExportWorking: (formatLabel, total) =>
+    set({
+      exportStatus: 'working',
+      exportFrame: 0,
+      exportTotal: total,
+      exportFormatLabel: formatLabel,
+      exportError: null,
+      exportDownload: null,
+    }),
+  setExportProgress: (frame, total) => set({ exportFrame: frame, exportTotal: total }),
+  setExportDone: (download) => set({ exportStatus: 'done', exportDownload: download }),
+  setExportError: (msg) => set({ exportStatus: 'error', exportError: msg }),
+  resetExport: () =>
+    set({
+      exportStatus: 'idle',
+      exportFrame: 0,
+      exportTotal: 0,
+      exportFormatLabel: '',
+      exportError: null,
+      exportDownload: null,
+    }),
+  setExportFormat: (format) => set({ exportFormat: format }),
+  setExportFilename: (name) => set({ exportFilename: name }),
   undo: () =>
     set((s) => {
       const prev = s.past[s.past.length - 1];
