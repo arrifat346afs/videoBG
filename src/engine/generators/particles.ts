@@ -14,42 +14,47 @@ uniform vec3 u_b;
 
 vec3 dark, a, b;
 
+const float TAU = 6.28318530718;
+
 float hash2(vec2 p) {
   return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453123);
-}
-
-vec3 palette(float t) {
-  return mix(a, b, smoothstep(0.0, 1.0, t));
 }
 
 void main() {
   dark = u_dark;
   a = u_a;
   b = u_b;
-  float t = u_time;
 
   vec2 aspect = vec2(u_resolution.x / u_resolution.y, 1.0);
   vec2 p = (v_uv - 0.5) * aspect * u_scale;
 
+  // Integer-cycle motion: phase -> unit circle. The per-particle seed is
+  // static (no u_time term, which would re-randomize every frame).
+  float a1 = TAU * u_phase;
+  float a2 = 2.0 * a1;
+
   float n = 0.0;
   for (int i = 0; i < 32; i++) {
-    float seed = float(i) + u_seed * 17.0 + u_time * 13.0;
-    vec2 c = vec2(hash2(vec2(seed, 1.0)) * 2.0 - 1.0,
-                  hash2(vec2(seed, 2.0)) * 2.0 - 1.0);
-    float speed = 0.05 + 0.1 * hash2(vec2(seed, 3.0));
-    vec2 pos = (p * 3.0 + c + vec2(sin(t + float(i) * 0.5), cos(t * 0.7 + float(i) * 0.3)) * 0.3)
-               * speed * u_count * 0.8;
-    float r = length(p - c * 0.02) * 2.0 * u_scale * (0.6 + 0.4 * sin(t));
-    float d = length(pos) - 0.12 - 0.04 * sin(t + float(i));
-    n += exp(-d * d * 16.0) * (0.7 + 0.3 * sin(t * 2.0 + float(i)));
+    float seed = float(i) + u_seed * 17.0;
+    // Density control: show a fraction of the stars from u_count.
+    float vis = hash2(vec2(seed, 5.0));
+    if (vis > clamp(u_count * 0.7, 0.35, 0.98)) continue;
+
+    vec2 c = (vec2(hash2(vec2(seed, 1.0)), hash2(vec2(seed, 2.0))) - 0.5) * 2.0;
+    float ph = hash2(vec2(seed, 3.0)) * TAU;
+    // Each star drifts on its own small circle so the field loops.
+    vec2 off = vec2(cos(a1 + ph), sin(a1 + ph)) * 0.06;
+    float d = length(p - (c + off));
+    float sz = 0.022 + 0.030 * hash2(vec2(seed, 4.0));
+    float tw = 0.5 + 0.5 * sin(a2 + ph * 5.0);
+    n += exp(-(d * d) / (sz * sz)) * tw;
   }
 
-  float m = smoothstep(0.0, 1.0, n);
-  vec3 col = mix(dark, a, m * 0.6);
+  float m = smoothstep(0.0, 0.8, n);
+  vec3 col = mix(dark, a, m * 0.45);
   col = mix(col, b, m * 0.9);
   col += b * m * m * u_glow;
 
-  col = pow(col, vec3(1.0 / 2.2));
   outColor = vec4(col, 1.0);
 }
 `;
