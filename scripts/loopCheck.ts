@@ -33,6 +33,8 @@ const args = process.argv.slice(2);
 const verbose = args.includes('--verbose');
 const tIdx = args.indexOf('--threshold');
 const THRESHOLD = tIdx >= 0 ? Number(args[tIdx + 1]) : 0.002;
+const gIdx = args.indexOf('--gen');
+const ONLY = gIdx >= 0 ? args[gIdx + 1] : undefined;
 
 interface GpuUniform {
   name: string;
@@ -66,6 +68,7 @@ function toGpuUniforms(gen: Generator): GpuUniform[] {
 const jobs: ShaderJob[] = [];
 for (const gen of listGenerators()) {
   if (!gen.fragmentShader) continue; // scene3d handled separately
+  if (ONLY && gen.id !== ONLY) continue;
   jobs.push({
     id: gen.id,
     name: gen.name,

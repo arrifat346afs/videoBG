@@ -14,6 +14,8 @@ uniform vec3 u_c;
 
 vec3 dark, a, b, c;
 
+const float TAU = 6.28318530718;
+
 float hash2(vec2 p) {
   return fract(sin(dot(p, vec2(7.13, 1.13))) * 521.13 + u_seed * 37.3);
 }
@@ -34,23 +36,30 @@ void main() {
   a = u_a;
   b = u_b;
   c = u_c;
-  float t = u_time;
 
   vec2 aspect = vec2(u_resolution.x / u_resolution.y, 1.0);
   vec2 p = (v_uv - 0.5) * aspect * u_scale;
 
-  vec2 c1 = vec2(0.6, 0.4) + 0.22 * vec2(cos(t * 0.29), sin(t * 0.41))
-    + fbm(p * 0.15 + t * 0.06);
-  vec2 c2 = vec2(0.3, 0.7) + 0.22 * vec2(sin(t * 0.33), cos(t * 0.37))
-    + fbm(p * 0.13 - t * 0.05);
-  vec2 c3 = vec2(0.75, 0.25) + 0.18 * vec2(cos(t * 0.22), sin(t * 0.39))
-    + fbm(p * 0.11 + t * 0.04);
+  // Integer-cycle motion: phase -> unit circle. No linear-in-time terms.
+  float a1 = TAU * u_phase;
+  float a2 = 2.0 * a1;
+  float ca = cos(a1);
+  float sa = sin(a1);
+  float ck2 = cos(a2);
+  float sk2 = sin(a2);
+
+  vec2 c1 = vec2(0.6, 0.4) + 0.22 * vec2(ca, sa)
+    + fbm(p * 0.15 + vec2(ca, sa) * 0.25);
+  vec2 c2 = vec2(0.3, 0.7) + 0.22 * vec2(sa, ca)
+    + fbm(p * 0.13 - vec2(ca, sa) * 0.25);
+  vec2 c3 = vec2(0.75, 0.25) + 0.18 * vec2(ck2, sk2)
+    + fbm(p * 0.11 + vec2(sa, ca) * 0.25);
 
   vec2 q = vec2(
-    fbm(p + 1.2 * vec2(c1.x * sin(t), c1.y * cos(t))),
-    fbm(p - 0.9 * vec2(cos(t), -sin(t)) + 0.3 * vec2(c2.x, c2.y))
+    fbm(p + 1.2 * vec2(c1.x * sa, c1.y * ca)),
+    fbm(p - 0.9 * vec2(ca, -sa) + 0.3 * vec2(c2.x, c2.y))
   );
-  float f = fbm(p + 0.7 * q + 0.2 * sin(t) + u_seed * 3.0);
+  float f = fbm(p + 0.7 * q + vec2(ca, sa) * 0.2 + u_seed * 3.0);
 
   float m = smoothstep(0.3, 0.85, f);
   vec3 col = mix(dark, a, m);
@@ -60,7 +69,6 @@ void main() {
   float edge = pow(1.0 - abs(2.0 * m - 1.0), u_softness);
   col += 0.25 * edge * (c - a) * 0.6;
 
-  col = pow(col, vec3(1.0 / 2.2));
   outColor = vec4(col, 1.0);
 }
 `;
