@@ -32,11 +32,17 @@ export function surfaceParams(o: {
   flow?: number;
   chop?: number;
   jitter?: number;
+  fillFrame?: boolean;
+  detail?: number;
+  edgeFade?: number;
 }): ParamDef[] {
   return [
+    { kind: 'boolean', key: 'fillFrame', label: 'Fill frame', defaultValue: o.fillFrame ?? true },
+    { kind: 'number', key: 'detail', label: 'Detail', min: 0.3, max: 2.0, step: 0.05, defaultValue: o.detail ?? 1.0 },
+    { kind: 'number', key: 'edgeFade', label: 'Edge fade', min: 0, max: 1, step: 0.05, defaultValue: o.edgeFade ?? 0.6 },
     { kind: 'number', key: 'density', label: 'Density', min: 20, max: 220, step: 5, defaultValue: o.density ?? 110 },
-    { kind: 'number', key: 'surfWidth', label: 'Width', min: 10, max: 80, step: 1, defaultValue: o.width ?? 44 },
-    { kind: 'number', key: 'surfDepth', label: 'Depth', min: 10, max: 80, step: 1, defaultValue: o.depth ?? 34 },
+    { kind: 'number', key: 'surfWidth', label: 'Spread (width)', min: 10, max: 300, step: 1, defaultValue: o.width ?? 44 },
+    { kind: 'number', key: 'surfDepth', label: 'Depth', min: 10, max: 300, step: 1, defaultValue: o.depth ?? 34 },
     { kind: 'number', key: 'amplitude', label: 'Amplitude', min: 0.2, max: 6, step: 0.1, defaultValue: o.amplitude ?? 2.2 },
     { kind: 'number', key: 'frequency', label: 'Frequency', min: 0.2, max: 2.5, step: 0.05, defaultValue: o.frequency ?? 0.9 },
     { kind: 'number', key: 'waveCount', label: 'Waves', min: 2, max: 6, step: 1, defaultValue: o.waves ?? 4 },

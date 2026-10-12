@@ -15,6 +15,7 @@ import { TAU } from '../loop.ts';
 import { mulberry32 } from '../rng.ts';
 import type { Params, Scene3DFrameState, Scene3DHandle } from '../types.ts';
 import { hexToLinear } from './color.ts';
+import { frustumCoverage } from './frustum.ts';
 import { bool, num, str } from './params.ts';
 import { PointsQuads, shapeId } from './pointsQuad.ts';
 import { Scene3DPostShader } from './postPass.ts';
@@ -42,7 +43,10 @@ interface Cache {
   readonly waves: WaveComponent[];
   readonly nx: number;
   readonly nz: number;
+  readonly width: number;
+  readonly depth: number;
   readonly amplitude: number;
+  readonly edgeFade: number;
 }
 
 function fract(v: number): number {
@@ -273,7 +277,10 @@ export class WaveEngine implements Scene3DHandle {
         rC = rC * (1 - fogF) + horizonC[0] * fogF;
         gC = gC * (1 - fogF) + horizonC[1] * fogF;
         bC = bC * (1 - fogF) + horizonC[2] * fogF;
-        const alpha = (showDots ? 1 : 0) * layerAlpha * hFade * nFade * (1 - coc * 0.45);
+        const edgeSoft = c.edgeFade > 0
+          ? 1 - c.edgeFade * smoothstep(0.6, 1.0, Math.max(Math.abs(bx) / (c.width * 0.5), Math.abs(bz) / (c.depth * 0.5)))
+          : 1;
+        const alpha = (showDots ? 1 : 0) * layerAlpha * hFade * nFade * (1 - coc * 0.45) * edgeSoft;
         const size = (dotMin + (dotMax - dotMin) * (c.nodeSizeT[i] ?? 0.5)) * (1 + coc * 0.8) * (1 + crest * 0.25);
         if (pi < this.points.capacity && alpha > 0.004) {
           arr.pos[pi * 3] = wx;
@@ -319,7 +326,12 @@ export class WaveEngine implements Scene3DHandle {
           edgeFade = 1 - smoothstep(linkDist * 0.55, linkDist, len);
           if (edgeFade <= 0.01) continue;
         }
-        const hFade = (1 - clamp(horizon, 0, 1.5) * 0.75 * smoothstep(focus * 1.15, focus * 1.15 + 26, depth)) * edgeFade;
+        const ex0 = (ax + bx2) * 0.5;
+        const ez0 = (az + bz2) * 0.5;
+        const edgeSoft = c.edgeFade > 0
+          ? 1 - c.edgeFade * smoothstep(0.6, 1.0, Math.max(Math.abs(ex0) / (c.width * 0.5), Math.abs(ez0) / (c.depth * 0.5)))
+          : 1;
+        const hFade = (1 - clamp(horizon, 0, 1.5) * 0.75 * smoothstep(focus * 1.15, focus * 1.15 + 26, depth)) * edgeFade * edgeSoft;
         if (hFade <= 0.01) continue;
         const t = c.kind === 'plexus' ? 0.55 : smoothstep(-0.65, 0.95, ((ay + by2) / 2 / Math.max(0.2, c.amplitude)));
         let rC = (cA[0] + (cB[0] - cA[0]) * t) * (1 - fogF) + horizonC[0] * fogF;
@@ -437,9 +449,12 @@ export class WaveEngine implements Scene3DHandle {
       const t = smoothstep(-0.65, 0.95, hN);
       const crest = crestFactor(hN * c.amplitude, c.amplitude, 0.85);
       const b = 0.5 + crest * crestGlow * 0.3;
-      ca[i * 3] = ((cA[0] + (cB[0] - cA[0]) * t) * b) * 0.6 + cDark[0] * 0.25;
-      ca[i * 3 + 1] = ((cA[1] + (cB[1] - cA[1]) * t) * b) * 0.6 + cDark[1] * 0.25;
-      ca[i * 3 + 2] = ((cA[2] + (cB[2] - cA[2]) * t) * b) * 0.6 + cDark[2] * 0.25;
+      const ef = c.edgeFade > 0
+        ? 1 - c.edgeFade * smoothstep(0.55, 1.0, Math.max(Math.abs(disp[i * 3] ?? 0) / (c.width * 0.5), Math.abs(disp[i * 3 + 2] ?? 0) / (c.depth * 0.5)))
+        : 1;
+      ca[i * 3] = (((cA[0] + (cB[0] - cA[0]) * t) * b) * 0.6 + cDark[0] * 0.25) * ef;
+      ca[i * 3 + 1] = (((cA[1] + (cB[1] - cA[1]) * t) * b) * 0.6 + cDark[1] * 0.25) * ef;
+      ca[i * 3 + 2] = (((cA[2] + (cB[2] - cA[2]) * t) * b) * 0.6 + cDark[2] * 0.25) * ef;
       void fogK;
     }
     posA.needsUpdate = true;
@@ -451,8 +466,25 @@ export class WaveEngine implements Scene3DHandle {
     const kind = this.opts.topology;
     const density = Math.round(num(params, 'density', kind === 'plexus' ? 220 : 110));
     const nodeCount = Math.round(num(params, 'nodeCount', density * 2));
-    const w = num(params, 'surfWidth', 44);
-    const d = num(params, 'surfDepth', 34);
+    const detail = num(params, 'detail', 1.0);
+    const edgeFade = clamp(num(params, 'edgeFade', 0.6), 0, 1);
+    const fillFrame = bool(params, 'fillFrame', true);
+    let w = num(params, 'surfWidth', 44);
+    let d = num(params, 'surfDepth', 34);
+    // Surface topologies (not the plexus volume) can auto-size to the frustum
+    // so no grid edge is ever visible, including at extreme aspect ratios.
+    if (fillFrame && kind !== 'plexus') {
+      const cov = frustumCoverage({
+        fovDeg: num(params, 'fov', 50),
+        aspect: this.W / this.H,
+        camHeight: num(params, 'camHeight', 10),
+        pitchDeg: num(params, 'pitch', 2),
+        distance: num(params, 'distance', 30),
+        drift: num(params, 'drift', 1.5),
+      });
+      w = Math.max(w, cov.width);
+      d = Math.max(d, cov.depth);
+    }
     const amp = num(params, 'amplitude', 2.2);
     const freq = num(params, 'frequency', 0.9);
     const waves = Math.round(num(params, 'waveCount', 4));
@@ -461,7 +493,7 @@ export class WaveEngine implements Scene3DHandle {
     const shape = str(params, 'shape', 'circle');
     const linkDist = num(params, 'linkDist', 8.5);
     const motion = num(params, 'motion', 0.8);
-    const key = [kind, seed >>> 0, density, nodeCount, w, d, amp, freq, waves, dir, jitter, shape, linkDist, motion].join('|');
+    const key = [kind, seed >>> 0, density, nodeCount, detail, edgeFade, w, d, amp, freq, waves, dir, jitter, shape, linkDist, motion].join('|');
     if (this.cache && this.cache.key === key) return;
 
     const rot = (dir * Math.PI) / 180;
@@ -494,13 +526,15 @@ export class WaveEngine implements Scene3DHandle {
         orbitR[i] = rng.range(0.15, 1.1) * motion;
         orbitK[i] = rng.next() < 0.7 ? 1 : 2;
       }
-      this.cache = { key, kind, count, base, edges, nodeShape, nodeSizeT, nodePhase, orbitR, orbitK, waves: mkWaves, nx: 0, nz: 0, amplitude: amp };
+      this.cache = { key, kind, count, base, edges, nodeShape, nodeSizeT, nodePhase, orbitR, orbitK, waves: mkWaves, nx: 0, nz: 0, amplitude: amp, width: w, depth: d, edgeFade };
       return;
     }
 
     if (kind === 'hex') {
-      const cols = clamp(Math.round(density), 20, 200);
-      const rows = clamp(Math.round((density * d) / Math.max(1, w)), 12, 160);
+      const [cols, rows] = this.capGrid(
+        clamp(Math.round(density * detail), 20, 400),
+        clamp(Math.round(((density * detail) * d) / Math.max(1, w)), 12, 400),
+      );
       const h = buildHex(cols, rows, w, d);
       const jittered = new Float32Array(h.positions);
       for (let i = 0; i < h.count; i++) {
@@ -508,13 +542,15 @@ export class WaveEngine implements Scene3DHandle {
         jittered[i * 3 + 2] = (jittered[i * 3 + 2] ?? 0) + (rng.next() - 0.5) * jitter * 1.4;
       }
       const { nodeShape, nodeSizeT, nodePhase, orbitR, orbitK } = this.nodeAttrs(rng, h.count, shapeMixed, shape);
-      this.cache = { key, kind, count: h.count, base: jittered, edges: h.edges, nodeShape, nodeSizeT, nodePhase, orbitR, orbitK, waves: mkWaves, nx: cols, nz: rows, amplitude: amp };
+      this.cache = { key, kind, count: h.count, base: jittered, edges: h.edges, nodeShape, nodeSizeT, nodePhase, orbitR, orbitK, waves: mkWaves, nx: cols, nz: rows, amplitude: amp, width: w, depth: d, edgeFade };
       return;
     }
 
     // grid + tri share grid topology (tri adds face shading).
-    const nx = clamp(Math.round(density), 20, 220);
-    const nz = clamp(Math.round((density * d) / Math.max(1, w)), 12, 170);
+    const [nx, nz] = this.capGrid(
+      clamp(Math.round(density * detail), 20, 400),
+      clamp(Math.round(((density * detail) * d) / Math.max(1, w)), 12, 400),
+    );
     const g = buildGrid(nx, nz, w, d);
     const jittered = new Float32Array(g.positions);
     for (let i = 0; i < nx * nz; i++) {
@@ -522,7 +558,16 @@ export class WaveEngine implements Scene3DHandle {
       jittered[i * 3 + 2] = (jittered[i * 3 + 2] ?? 0) + (rng.next() - 0.5) * jitter * 1.6;
     }
     const { nodeShape, nodeSizeT, nodePhase, orbitR, orbitK } = this.nodeAttrs(rng, nx * nz, shapeMixed, shape);
-    this.cache = { key, kind, count: nx * nz, base: jittered, edges: g.edges, nodeShape, nodeSizeT, nodePhase, orbitR, orbitK, waves: mkWaves, nx, nz, amplitude: amp };
+    this.cache = { key, kind, count: nx * nz, base: jittered, edges: g.edges, nodeShape, nodeSizeT, nodePhase, orbitR, orbitK, waves: mkWaves, nx, nz, amplitude: amp, width: w, depth: d, edgeFade };
+  }
+
+  /** Auto-reduce grid density so the vertex count stays under a safe cap. */
+  private capGrid(nx: number, nz: number): [number, number] {
+    const CAP = 48000;
+    const tot = nx * nz;
+    if (tot <= CAP) return [nx, nz];
+    const s = Math.sqrt(CAP / tot);
+    return [Math.max(20, Math.floor(nx * s)), Math.max(12, Math.floor(nz * s))];
   }
 
   private nodeAttrs(
