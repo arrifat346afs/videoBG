@@ -14,6 +14,8 @@ uniform vec3 u_b;
 
 vec3 dark, a, b;
 
+const float TAU = 6.28318530718;
+
 float hash2(vec2 p) {
   return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453123);
 }
@@ -22,22 +24,26 @@ void main() {
   dark = u_dark;
   a = u_a;
   b = u_b;
-  float t = u_time;
 
   vec2 aspect = vec2(u_resolution.x / u_resolution.y, 1.0);
   vec2 p = (v_uv - 0.5) * aspect * u_scale;
+
+  // Integer-cycle motion: phase -> unit circle.
+  float a1 = TAU * u_phase;
+  float ca = cos(a1);
+  float sa = sin(a1);
 
   vec2 g = floor(p * 16.0);
   vec2 f = fract(p * 16.0) - 0.5;
   float dist = length(f) * 2.0;
 
-  vec2 cell = fract(g * 0.1 + t * 0.05 + u_seed * 0.01);
-  float r = hash2(g + vec2(sin(t), cos(t)));
+  vec2 cell = fract(g * 0.1 + sa * 0.1 + u_seed * 0.01);
+  float r = hash2(g + vec2(sa, ca));
   float size = (1.0 - r) * (0.35 + 0.5 * u_dot);
 
   float dotVal = 1.0 - smoothstep(0.0, size, dist);
-  float scan = 1.0 - 0.4 * sin(g.y * 0.5 + t * 3.0);
-  float noise = (hash2(g + vec2(sin(t), cos(t))) - 0.5) * 0.02 * u_glitch;
+  float scan = 1.0 - 0.4 * sin(g.y * 0.5 + 3.0 * a1);
+  float noise = (hash2(g + vec2(sa, ca)) - 0.5) * 0.02 * u_glitch;
 
   float v = smoothstep(0.1, 0.9, dotVal * scan + noise);
   float m1 = smoothstep(0.15, 0.55, v);
@@ -45,7 +51,6 @@ void main() {
   vec3 col = mix(dark, a, m1);
   col = mix(col, b, m2);
   col += (vec3(noise) + 0.5) * u_glitch * 0.3;
-  col = pow(col, vec3(1.0 / 2.2));
   outColor = vec4(col, 1.0);
 }
 `;
