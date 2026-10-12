@@ -17,19 +17,21 @@ void main() {
   vec2 aspect = vec2(u_resolution.x / u_resolution.y, 1.0);
   vec2 p = (v_uv - 0.5) * aspect * u_scale;
   p += (u_seed - 0.5) * 7.0;
-  float t = u_time;
+  // Integer-cycle drift: phase -> unit circle (seamless).
+  float t = 6.28318530718 * u_phase;
+  vec2 c1 = vec2(cos(t), sin(t));
+  vec2 c2 = vec2(sin(t), cos(t));
 
-  float w1 = fbm2(p * 1.6 + vec2(cos(t * 0.4), sin(t * 0.4)) * 0.6, 4.0);
-  float w2 = fbm2(p * 2.3 - vec2(sin(t * 0.3), cos(t * 0.3)) * 0.6, 4.0);
+  float w1 = fbm2(p * 1.6 + c1 * 0.6, 4.0);
+  float w2 = fbm2(p * 2.3 - c2 * 0.6, 4.0);
   float v = abs(w1 - w2) * (2.0 + u_feed * 40.0);
-  v += 0.25 * vnoise(p * (6.0 + u_kill * 60.0) + t);
+  v += 0.25 * vnoise(p * (6.0 + u_kill * 60.0) + c1 * 0.8);
   float m = smoothstep(0.05, 0.5, v);
   m = pow(m, 0.7 + u_scale);
 
   vec3 col = mix(u_dark, u_a, smoothstep(0.1, 0.6, m));
   col = mix(col, u_b, smoothstep(0.45, 0.9, m));
   col += u_b * pow(m, 3.0) * 0.5;
-  col = pow(col, vec3(1.0 / 2.2));
   outColor = vec4(col, 1.0);
 }
 `;
