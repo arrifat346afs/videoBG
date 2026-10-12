@@ -14,6 +14,8 @@ uniform vec3 u_b;
 
 vec3 dark, a, b;
 
+const float TAU = 6.28318530718;
+
 float fbm(vec2 p, float oct) {
   float v = 0.0;
   float w = 0.5;
@@ -30,19 +32,26 @@ void main() {
   dark = u_dark;
   a = u_a;
   b = u_b;
-  float t = u_time;
 
   vec2 aspect = vec2(u_resolution.x / u_resolution.y, 1.0);
   vec2 p = (v_uv - 0.5) * aspect * u_scale;
 
-  float n1 = fbm(p * 1.2 + vec2(t * 0.15, t * 0.22), 2.0 + u_complexity * 0.5);
-  float n2 = fbm(p * 1.2 - vec2(t * 0.18, t * 0.13), 2.0 + u_complexity * 0.5);
-  float n3 = fbm(vec2(dot(p, vec2(0.6, 0.8)) * 2.5 + t * 0.25,
-                      dot(p, vec2(-0.8, 0.6)) * 2.5 - t * 0.21),
+  // Integer-cycle motion: phase -> unit circle (drifts are sums of ca/sa).
+  float a1 = TAU * u_phase;
+  float a2 = 2.0 * a1;
+  float ca = cos(a1);
+  float sa = sin(a1);
+  float c2 = cos(a2);
+  float s2 = sin(a2);
+
+  float n1 = fbm(p * 1.2 + vec2(ca, sa) * 0.6, 2.0 + u_complexity * 0.5);
+  float n2 = fbm(p * 1.2 - vec2(sa, ca) * 0.6, 2.0 + u_complexity * 0.5);
+  float n3 = fbm(vec2(dot(p, vec2(0.6, 0.8)) * 2.5 + c2 * 0.8,
+                      dot(p, vec2(-0.8, 0.6)) * 2.5 - s2 * 0.8),
                   2.0 + u_complexity * 0.5);
 
-  float f = (n1 + n2) * 0.5 + sin(dot(p * 2.5 + vec2(t * 0.3, -t * 0.4), vec2(1.0, 0.5))
-                                  + t * 0.2 + u_phaseOffset) * 0.5 * n3;
+  float f = (n1 + n2) * 0.5
+    + sin(dot(p * 2.5, vec2(1.0, 0.5)) + 0.9 * sa + u_phaseOffset) * 0.5 * n3;
   f = smoothstep(-0.6, 0.9, f);
 
   float m1 = smoothstep(0.15, 0.55, f);
@@ -53,7 +62,6 @@ void main() {
   float edge = pow(1.0 - smoothstep(0.0, 1.0, f), 3.0);
   col += a * edge * 0.4;
 
-  col = pow(col, vec3(1.0 / 2.2));
   outColor = vec4(col, 1.0);
 }
 `;
