@@ -75,6 +75,103 @@ export function meshParams(o: {
   ];
 }
 
+/** Mound-terrain params for the low-poly terrain generator. */
+export function terrainParams(o: {
+  mounds?: number;
+  hero?: number;
+  radius?: number;
+  elongation?: number;
+  curl?: number;
+  floorNoise?: number;
+  flow?: number;
+  jitter?: number;
+  flip?: number;
+  density?: number;
+  width?: number;
+  depth?: number;
+  fillFrame?: boolean;
+  detail?: number;
+  edgeFade?: number;
+} = {}): ParamDef[] {
+  return [
+    { kind: 'number', key: 'moundCount', label: 'Mounds', min: 1, max: 4, step: 1, defaultValue: o.mounds ?? 2 },
+    { kind: 'number', key: 'heroHeight', label: 'Hero height', min: 1, max: 10, step: 0.1, defaultValue: o.hero ?? 4.5 },
+    { kind: 'number', key: 'moundRadius', label: 'Mound radius', min: 3, max: 20, step: 0.5, defaultValue: o.radius ?? 7 },
+    { kind: 'number', key: 'elongation', label: 'Ridge elongation', min: 1, max: 3, step: 0.1, defaultValue: o.elongation ?? 1.6 },
+    { kind: 'number', key: 'curl', label: 'Curl', min: 0, max: 1.5, step: 0.05, defaultValue: o.curl ?? 0.55 },
+    { kind: 'number', key: 'floorNoise', label: 'Floor noise', min: 0, max: 1, step: 0.05, defaultValue: o.floorNoise ?? 0.25 },
+    { kind: 'number', key: 'flow', label: 'Flow speed', min: 1, max: 3, step: 1, defaultValue: o.flow ?? 1 },
+    { kind: 'number', key: 'jitter', label: 'Triangle jitter', min: 0, max: 0.35, step: 0.01, defaultValue: o.jitter ?? 0.08 },
+    { kind: 'number', key: 'flip', label: 'Diagonal flip', min: 0, max: 1, step: 0.05, defaultValue: o.flip ?? 0.6 },
+    { kind: 'number', key: 'density', label: 'Density', min: 40, max: 220, step: 5, defaultValue: o.density ?? 150 },
+    { kind: 'number', key: 'surfWidth', label: 'Spread (width)', min: 40, max: 300, step: 1, defaultValue: o.width ?? 120 },
+    { kind: 'number', key: 'surfDepth', label: 'Depth', min: 40, max: 300, step: 1, defaultValue: o.depth ?? 90 },
+    { kind: 'boolean', key: 'fillFrame', label: 'Fill frame', defaultValue: o.fillFrame ?? true },
+    { kind: 'number', key: 'detail', label: 'Detail', min: 0.3, max: 2.0, step: 0.05, defaultValue: o.detail ?? 1.0 },
+    { kind: 'number', key: 'edgeFade', label: 'Edge fade', min: 0, max: 1, step: 0.05, defaultValue: o.edgeFade ?? 0.55 },
+  ];
+}
+
+/** Two coloured directional lights + translucency for flat-shaded terrain. */
+export function dualLightParams(o: {
+  a?: string;
+  azA?: number;
+  elA?: number;
+  intA?: number;
+  b?: string;
+  azB?: number;
+  elB?: number;
+  intB?: number;
+  ambient?: number;
+  wrap?: number;
+  rim?: number;
+  alpha?: number;
+  backface?: number;
+  bloom?: number;
+} = {}): ParamDef[] {
+  return [
+    { kind: 'color', key: 'lightA', label: 'Light A', defaultValue: o.a ?? '#ff2b4e' },
+    { kind: 'number', key: 'azA', label: 'Light A azimuth', min: -180, max: 180, step: 1, defaultValue: o.azA ?? -70 },
+    { kind: 'number', key: 'elA', label: 'Light A elevation', min: 0, max: 90, step: 1, defaultValue: o.elA ?? 22 },
+    { kind: 'number', key: 'intA', label: 'Light A intensity', min: 0, max: 2.5, step: 0.05, defaultValue: o.intA ?? 1.3 },
+    { kind: 'color', key: 'lightB', label: 'Light B', defaultValue: o.b ?? '#27e6ff' },
+    { kind: 'number', key: 'azB', label: 'Light B azimuth', min: -180, max: 180, step: 1, defaultValue: o.azB ?? 70 },
+    { kind: 'number', key: 'elB', label: 'Light B elevation', min: 0, max: 90, step: 1, defaultValue: o.elB ?? 20 },
+    { kind: 'number', key: 'intB', label: 'Light B intensity', min: 0, max: 2.5, step: 0.05, defaultValue: o.intB ?? 1.15},
+    { kind: 'number', key: 'ambient', label: 'Ambient', min: 0, max: 0.2, step: 0.005, defaultValue: o.ambient ?? 0.03 },
+    { kind: 'number', key: 'wrap', label: 'Light wrap', min: 0, max: 1, step: 0.05, defaultValue: o.wrap ?? 0.15 },
+    { kind: 'number', key: 'rim', label: 'Rim strength', min: 0, max: 2, step: 0.05, defaultValue: o.rim ?? 0.7 },
+    { kind: 'number', key: 'faceAlpha', label: 'Face translucency', min: 0.15, max: 0.9, step: 0.05, defaultValue: o.alpha ?? 0.45 },
+    { kind: 'number', key: 'backface', label: 'Back-face intensity', min: 0, max: 1, step: 0.05, defaultValue: o.backface ?? 0.45 },
+    { kind: 'number', key: 'bloom', label: 'Bloom', min: 0, max: 2, step: 0.1, defaultValue: o.bloom ?? 0.5 },
+  ];
+}
+
+/** Dots + barycentric edges for the terrain mesh (single layer). */
+export function terrainMeshParams(o: {
+  lines?: boolean;
+  dots?: boolean;
+  dotMin?: number;
+  dotMax?: number;
+  dotBoost?: number;
+  lineWidth?: number;
+  lineOpacity?: number;
+  edgeOpacity?: number;
+  edgeWidth?: number;
+} = {}): ParamDef[] {
+  return [
+    { kind: 'boolean', key: 'showLines', label: 'Show lines', defaultValue: o.lines ?? false },
+    { kind: 'boolean', key: 'showDots', label: 'Show dots', defaultValue: o.dots ?? true },
+    { kind: 'number', key: 'dotMin', label: 'Dot min', min: 0.05, max: 1.5, step: 0.05, defaultValue: o.dotMin ?? 0.14 },
+    { kind: 'number', key: 'dotMax', label: 'Dot max', min: 0.1, max: 2.5, step: 0.05, defaultValue: o.dotMax ?? 0.34 },
+    { kind: 'number', key: 'dotBoost', label: 'Dot mound boost', min: 0, max: 2, step: 0.1, defaultValue: o.dotBoost ?? 1.0 },
+    { kind: 'number', key: 'lineWidth', label: 'Line width', min: 0.5, max: 5, step: 0.1, defaultValue: o.lineWidth ?? 1.2 },
+    { kind: 'number', key: 'lineOpacity', label: 'Line opacity', min: 0, max: 1.5, step: 0.05, defaultValue: o.lineOpacity ?? 0.5 },
+    { kind: 'number', key: 'edgeOpacity', label: 'Edge opacity', min: 0, max: 1, step: 0.05, defaultValue: o.edgeOpacity ?? 0.22 },
+    { kind: 'number', key: 'edgeWidth', label: 'Edge width', min: 0.5, max: 3, step: 0.1, defaultValue: o.edgeWidth ?? 1.0 },
+  ];
+}
+
 export function depthParams(o: { focus?: number; dof?: number; fog?: number; horizon?: number; near?: number } = {}): ParamDef[] {
   return [
     { kind: 'number', key: 'focus', label: 'Focus dist', min: 5, max: 60, step: 1, defaultValue: o.focus ?? 26 },

@@ -81,4 +81,52 @@ export const SCENE3D_PRESETS: readonly Scene3DPreset[] = [
     seed: 1212,
     params: { nodeCount: 340, linkDist: 6, shape: 'circle', lineWidth: 1.0, dark: '#020617', a: '#1e40af', b: '#60a5fa' },
   },
+  {
+    name: 'Red/Blue Low-Poly (reference)',
+    generatorId: 'lowpoly-terrain',
+    seed: 1313,
+    params: { moundCount: 2, heroHeight: 4.5, moundRadius: 8, lightA: '#ff2b4e', lightB: '#27e6ff', dark: '#010307' },
+  },
+  {
+    name: 'Magenta/Cyan Dunes',
+    generatorId: 'lowpoly-terrain',
+    seed: 1414,
+    params: { moundCount: 3, heroHeight: 3.6, moundRadius: 9, elongation: 2.2, lightA: '#ff2bd9', lightB: '#22e6ff', dark: '#05010a' },
+  },
+  {
+    name: 'Orange/Teal Ridge',
+    generatorId: 'lowpoly-terrain',
+    seed: 1515,
+    params: { moundCount: 2, heroHeight: 5.2, elongation: 2.6, curl: 0.8, lightA: '#ff7a1a', lightB: '#1fd6c1', dark: '#060301' },
+  },
+  {
+    name: 'Mono Ice Terrain',
+    generatorId: 'lowpoly-terrain',
+    seed: 1616,
+    params: { moundCount: 2, faceAlpha: 0.45, ambient: 0.05, lightA: '#f2f5ff', lightB: '#5b8cff', dark: '#010207' },
+  },
+  {
+    name: 'Violet/Gold Peaks',
+    generatorId: 'lowpoly-terrain',
+    seed: 1717,
+    params: { moundCount: 3, heroHeight: 5.5, moundRadius: 7, lightA: '#a855f7', lightB: '#ffc53d', dark: '#040110' },
+  },
+  {
+    name: 'Green/Purple Hills',
+    generatorId: 'lowpoly-terrain',
+    seed: 1818,
+    params: { moundCount: 3, heroHeight: 3.4, floorNoise: 0.4, lightA: '#3dff7a', lightB: '#a855f7', dark: '#010603' },
+  },
+  {
+    name: 'Single Hero Mound',
+    generatorId: 'lowpoly-terrain',
+    seed: 1919,
+    params: { moundCount: 1, heroHeight: 5.5, moundRadius: 9, curl: 0.7, lightA: '#ff2b4e', lightB: '#27e6ff', dark: '#010307' },
+  },
+  {
+    name: 'Twin Mounds',
+    generatorId: 'lowpoly-terrain',
+    seed: 2020,
+    params: { moundCount: 2, heroHeight: 4.2, moundRadius: 7, flow: 2, lightA: '#ff2b4e', lightB: '#27e6ff', dark: '#010307' },
+  },
 ];

@@ -4,8 +4,8 @@ import '../engine/generators/index.ts';
 import { mulberry32 } from '../engine/rng.ts';
 
 describe('generator registry', () => {
-  it('registers 22 2D styles + 6 scene3d styles, one file + one line each', () => {
-    expect(listGenerators()).toHaveLength(28);
+  it('registers 22 2D styles + 7 scene3d styles, one file + one line each', () => {
+    expect(listGenerators()).toHaveLength(29);
   });
   it('every generator has valid schema + deterministic randomize', () => {
     for (const g of listGenerators()) {

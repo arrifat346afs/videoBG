@@ -10,7 +10,7 @@ WebM fallback via MediaRecorder).
 - WebGL2 + custom tiny wrapper (`src/engine/gl.ts`, no `ogl`) — fullscreen triangle, uniform cache, context-loss handling.
 - Zustand for state, Tweakpane for settings panel.
 - mediabunny (successor to mp4-muxer) + WebCodecs VideoEncoder; MediaRecorder fallback.
-- Vitest (78 tests: RNG, loop math, frustum, gradient, palettes, registry, layers, share, export math).
+- Vitest (82 tests: RNG, loop math, frustum, gradient, palettes, registry, layers, terrain field, share, export math).
 
 ## Architecture
 
@@ -41,7 +41,7 @@ WebM fallback via MediaRecorder).
   export size, encode via `VideoFrame` → mediabunny `VideoSampleSource`. Never
   real-time. Progress + cancel via `AbortSignal`.
 
-## Generators (28)
+## Generators (29)
 
 2D shader generators (22): domain-warp, gradient-mesh, aurora, flow-field,
 metaballs, voronoi, plasma, kaleidoscope, truchet, topographic, julia, particles,
@@ -50,8 +50,10 @@ vector-waves, vector-blobs, vector-shapes, vector-lowpoly, vector-stripes,
 vector-grid-mosaic (crisp shapes antialiased with `fwidth`/`smoothstep`, colours
 from the gradient ramp, optional grain).
 
-3D scene generators (6): wave-mesh, dot-wave, hex-wave, tri-wave, plexus-3d,
-data-flow.
+3D scene generators (7): wave-mesh, dot-wave, hex-wave, tri-wave, plexus-3d,
+data-flow, lowpoly-terrain (flat-shaded translucent mound terrain with dual
+coloured lights, barycentric wireframe edges and vertex dots; face normals from
+screen-space derivatives, mound field in `src/engine/scene3d/terrain.ts`).
 
 ## How to add a new generator (one file + one line)
 

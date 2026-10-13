@@ -30,6 +30,7 @@ import { hexWave } from '../scene3d/hexWave.ts';
 import { triWave } from '../scene3d/triWave.ts';
 import { plexus3d } from '../scene3d/plexus3d.ts';
 import { dataFlow } from '../scene3d/dataFlow.ts';
+import { lowpolyTerrain } from '../scene3d/lowpolyTerrain.ts';
 
 registerGenerator(domainWarp);
 registerGenerator(gradientMesh);
@@ -59,6 +60,7 @@ registerGenerator(hexWave);
 registerGenerator(triWave);
 registerGenerator(plexus3d);
 registerGenerator(dataFlow);
+registerGenerator(lowpolyTerrain);
 
 export const ALL_GENERATORS: Generator[] = [
   domainWarp,
@@ -89,4 +91,5 @@ export const ALL_GENERATORS: Generator[] = [
   triWave,
   plexus3d,
   dataFlow,
+  lowpolyTerrain,
 ];

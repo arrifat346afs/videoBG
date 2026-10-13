@@ -20,10 +20,11 @@ import { decodeGradient, sampleGradient } from '../gradient.ts';
 import { bool, num, str } from './params.ts';
 import { PointsQuads, shapeId } from './pointsQuad.ts';
 import { Scene3DPostShader } from './postPass.ts';
+import { buildMounds, dirFromAzEl, TERRAIN_FRAG, TERRAIN_VERT, terrainDisp, type MoundField } from './terrain.ts';
 import { buildGrid, buildHex, buildKnnEdges, buildVolumePoints } from './topology.ts';
 import { buildWaves, crestFactor, waveHeight, type WaveComponent } from './waves.ts';
 
-export type TopologyKind = 'grid' | 'hex' | 'tri' | 'plexus';
+export type TopologyKind = 'grid' | 'hex' | 'tri' | 'plexus' | 'terrain';
 
 export interface EngineOptions {
   readonly topology: TopologyKind;
@@ -48,7 +49,15 @@ interface Cache {
   readonly depth: number;
   readonly amplitude: number;
   readonly edgeFade: number;
+  /** Terrain only: mound field, per-cell diagonal flips, face indices. */
+  readonly mounds: MoundField;
+  readonly flip: Uint8Array;
+  readonly indices: Uint32Array;
+  readonly heroHeight: number;
 }
+
+/** Empty mound field for non-terrain topologies. */
+const EMPTY_MOUNDS: MoundField = { mounds: [], heroHeight: 1, floorAmp: 0, floorFreq: 1, floorK1: 1, floorK2: 2 };
 
 function fract(v: number): number {
   return v - Math.floor(v);
@@ -102,6 +111,10 @@ export class WaveEngine implements Scene3DHandle {
   private lineMat: LineMaterial | null = null;
   private mesh: THREE.Mesh | null = null;
   private meshGeo: THREE.BufferGeometry | null = null;
+  private tMesh: THREE.Mesh | null = null;
+  private tGeo: THREE.BufferGeometry | null = null;
+  private tMat: THREE.ShaderMaterial | null = null;
+  private tKey = '';
   private opts: EngineOptions;
   private cache: Cache | null = null;
   private W = 2;
@@ -170,6 +183,11 @@ export class WaveEngine implements Scene3DHandle {
     const darkS = str(params, 'dark', '#050914');
     const aS = str(params, 'a', '#1b2a6b');
     const bS = str(params, 'b', '#3a86ff');
+    const isTerrain = c.kind === 'terrain';
+    // Terrain dual lights (linear working space).
+    const lA = hex(str(params, 'lightA', '#ff2b4e'));
+    const lB = hex(str(params, 'lightB', '#27e6ff'));
+    const avgL: readonly [number, number, number] = [(lA[0] + lB[0]) / 2, (lA[1] + lB[1]) / 2, (lA[2] + lB[2]) / 2];
     // A gradient param (when present) drives the backdrop + ramp perceptually;
     // otherwise fall back to the legacy dark/a/b colours so old links look the
     // same as before.
@@ -195,6 +213,18 @@ export class WaveEngine implements Scene3DHandle {
       top = [cDark[0] * 0.25, cDark[1] * 0.25, cDark[2] * 0.25];
       horizonC = [cDark[0] * 0.75 + cA[0] * 0.25, cDark[1] * 0.75 + cA[1] * 0.25, cDark[2] * 0.75 + cA[2] * 0.25];
     }
+    if (isTerrain) {
+      // Near-black backdrop with a barely light-tinted horizon haze; the fog
+      // color below doubles as the face-shader fog target.
+      cDark = hex(darkS);
+      const tint = 0.02;
+      horizonC = [
+        cDark[0] + avgL[0] * tint,
+        cDark[1] + avgL[1] * tint,
+        cDark[2] + avgL[2] * tint,
+      ];
+      top = [cDark[0] * 0.3, cDark[1] * 0.3, cDark[2] * 0.3];
+    }
     (this.bgMat.uniforms['u_top'] as { value: THREE.Color }).value.setRGB(top[0], top[1], top[2]);
     (this.bgMat.uniforms['u_horizon'] as { value: THREE.Color }).value.setRGB(horizonC[0], horizonC[1], horizonC[2]);
     this.scene.background = new THREE.Color(top[0], top[1], top[2]);
@@ -213,9 +243,10 @@ export class WaveEngine implements Scene3DHandle {
     const bloom = num(params, 'bloom', 0.7);
     const pulses = Math.round(num(params, 'pulses', 0));
     const pulseSpeed = Math.round(num(params, 'pulseSpeed', 1));
-    const layers = Math.max(1, Math.min(3, Math.round(num(params, 'layers', 1))));
+    const layers = isTerrain ? 1 : Math.max(1, Math.min(3, Math.round(num(params, 'layers', 1))));
     const flow = Math.max(1, Math.min(3, Math.round(num(params, 'flow', 1))));
     const chop = num(params, 'chop', 0.2);
+    const curlK = num(params, 'curl', 0.55);
     const tp = fract(p * flow);
     const camPos = this.camera.position;
     const fogK = num(params, 'fog', 0.028);
@@ -246,6 +277,12 @@ export class WaveEngine implements Scene3DHandle {
           wx += r * Math.cos(TAU * (p * k + ph));
           wy += r * 0.6 * Math.sin(TAU * (p * k + ph) + 1.3);
           wz += r * 0.6 * Math.sin(TAU * (p * (k === 1 ? 2 : 1) + ph));
+        } else if (c.kind === 'terrain') {
+          const d = terrainDisp(bx, bz, tp, c.mounds, curlK);
+          wx = d.x;
+          wy = d.y;
+          wz = d.z;
+          hN = clamp(d.h / Math.max(0.5, c.heroHeight), 0, 1);
         } else {
           const h = waveHeight(bx, bz, tp, c.waves);
           hN = c.amplitude > 1e-6 ? h / c.amplitude : 0;
@@ -272,14 +309,27 @@ export class WaveEngine implements Scene3DHandle {
         const nFade = smoothstep(Math.max(0.5, nearFade * 0.3), Math.max(1, nearFade), depth);
         // Height gradient valley->crest.
         const t = smoothstep(-0.65, 0.95, hN);
-        let rC = cA[0] + (cB[0] - cA[0]) * t;
-        let gC = cA[1] + (cB[1] - cA[1]) * t;
-        let bC = cA[2] + (cB[2] - cA[2]) * t;
-        // Dark valleys sink toward background.
-        const sink = (1 - t) * 0.45;
-        rC = rC * (1 - sink) + cDark[0] * sink;
-        gC = gC * (1 - sink) + cDark[1] * sink;
-        bC = bC * (1 - sink) + cDark[2] * sink;
+        let rC: number;
+        let gC: number;
+        let bC: number;
+        if (isTerrain) {
+          // White-ish dots tinted toward the mixed light colour, brighter on
+          // the mounds; fogged toward the horizon tint below like the faces.
+          const dotBoost = num(params, 'dotBoost', 1.0);
+          const bright = 0.35 + dotBoost * 1.25 * hN;
+          rC = (0.86 * 0.72 + avgL[0] * 0.28) * bright;
+          gC = (0.88 * 0.72 + avgL[1] * 0.28) * bright;
+          bC = (0.95 * 0.72 + avgL[2] * 0.28) * bright;
+        } else {
+          rC = cA[0] + (cB[0] - cA[0]) * t;
+          gC = cA[1] + (cB[1] - cA[1]) * t;
+          bC = cA[2] + (cB[2] - cA[2]) * t;
+          // Dark valleys sink toward background.
+          const sink = (1 - t) * 0.45;
+          rC = rC * (1 - sink) + cDark[0] * sink;
+          gC = gC * (1 - sink) + cDark[1] * sink;
+          bC = bC * (1 - sink) + cDark[2] * sink;
+        }
         const crest = c.kind === 'plexus' ? 0.25 : crestFactor(hN * c.amplitude, c.amplitude, 0.9);
         // Gentle highlight lift only where content is bright; never enough
         // to clip saturated palette color to white.
@@ -377,12 +427,15 @@ export class WaveEngine implements Scene3DHandle {
       this.lines.visible = false;
     }
 
-    // Optional face shading for tri topology.
+    // Optional face shading for tri topology; dual-light faces for terrain.
     if (this.opts.faceShading && c.kind === 'tri') {
       this.updateMesh(c, disp, cDark, cA, cB, fogK, crestGlow);
+    } else if (isTerrain) {
+      this.updateTerrainMesh(c, disp, params, fogK);
     } else if (this.mesh) {
       this.mesh.visible = false;
     }
+    if (!isTerrain && this.tMesh) this.tMesh.visible = false;
 
     // Post uniforms (mirror 2D grading).
     const u = this.post.uniforms as unknown as Record<string, { value: unknown }>;
@@ -393,7 +446,9 @@ export class WaveEngine implements Scene3DHandle {
     (u['u_brightness'] as { value: number }).value = post.brightness;
     (u['u_saturation'] as { value: number }).value = post.saturation;
     // Network/3D defaults to clean: clamp grain low (stylistic extra only).
-    (u['u_grain'] as { value: number }).value = Math.min(post.grain, 0.02);
+    // Terrain renders grain-free by spec (the post grain is luminance-weighted
+    // and ~0 in blacks anyway, but the face shader must stay perfectly clean).
+    (u['u_grain'] as { value: number }).value = isTerrain ? 0 : Math.min(post.grain, 0.02);
     (u['u_vignette'] as { value: number }).value = post.vignette;
     (u['u_chromAb'] as { value: number }).value = post.chromAb;
     (u['u_posterize'] as { value: number }).value = post.posterize;
@@ -476,6 +531,116 @@ export class WaveEngine implements Scene3DHandle {
     if (this.mesh) this.mesh.visible = true;
   }
 
+  /**
+   * Terrain faces: non-indexed mesh (static barycentrics, dynamic positions)
+   * with the dual-light flat-shading shader. Rebuilt when the cache key
+   * changes; per frame only positions are expanded and uniforms refreshed.
+   */
+  private updateTerrainMesh(
+    c: Cache,
+    disp: Float32Array,
+    params: Params,
+    fogK: number,
+  ): void {
+    if (!this.tGeo || !this.tMat || !this.tMesh || this.tKey !== c.key) {
+      this.tGeo?.dispose();
+      (this.tMat as unknown as { dispose?: () => void })?.dispose?.();
+      if (this.tMesh) this.scene.remove(this.tMesh);
+      const idx = c.indices;
+      const nv = idx.length;
+      const bary = new Float32Array(nv * 3);
+      for (let t = 0; t < nv; t += 3) {
+        for (let k = 0; k < 3; k++) {
+          const o = (t + k) * 3;
+          bary[o] = k === 0 ? 1 : 0;
+          bary[o + 1] = k === 1 ? 1 : 0;
+          bary[o + 2] = k === 2 ? 1 : 0;
+        }
+      }
+      this.tGeo = new THREE.BufferGeometry();
+      this.tGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(nv * 3), 3).setUsage(THREE.DynamicDrawUsage));
+      this.tGeo.setAttribute('aBary', new THREE.BufferAttribute(bary, 3));
+      this.tMat = new THREE.ShaderMaterial({
+        vertexShader: TERRAIN_VERT,
+        fragmentShader: TERRAIN_FRAG,
+        uniforms: {
+          u_lightA: { value: new THREE.Color(1, 0, 0) },
+          u_dirA: { value: new THREE.Vector3(0, 1, 0) },
+          u_intA: { value: 1 },
+          u_lightB: { value: new THREE.Color(0, 1, 1) },
+          u_dirB: { value: new THREE.Vector3(0, 1, 0) },
+          u_intB: { value: 1 },
+          u_ambient: { value: 0.03 },
+          u_wrap: { value: 0.15 },
+          u_rim: { value: 0.7 },
+          u_rimColor: { value: new THREE.Color(1, 1, 1) },
+          u_alpha: { value: 0.45 },
+          u_backface: { value: 0.45 },
+          u_bloom: { value: 0.5 },
+          u_hero: { value: 4.5 },
+          u_fogColor: { value: new THREE.Color(0, 0, 0) },
+          u_fogK: { value: 0.02 },
+          u_edgeOpacity: { value: 0.22 },
+          u_edgeWidth: { value: 1.0 },
+          u_focus: { value: 30 },
+          u_dof: { value: 0.4 },
+          u_near: { value: 5 },
+        },
+        transparent: true,
+        depthWrite: false,
+        depthTest: true,
+        side: THREE.DoubleSide,
+        blending: THREE.AdditiveBlending,
+      });
+      this.tMesh = new THREE.Mesh(this.tGeo, this.tMat);
+      this.tMesh.frustumCulled = false;
+      this.tMesh.renderOrder = 2;
+      this.scene.add(this.tMesh);
+      this.tKey = c.key;
+    }
+    const posA = this.tGeo.getAttribute('position') as THREE.BufferAttribute;
+    const pa = posA.array as Float32Array;
+    const idx = c.indices;
+    for (let v = 0; v < idx.length; v++) {
+      const vi = (idx[v] ?? 0) * 3;
+      pa[v * 3] = disp[vi] ?? 0;
+      pa[v * 3 + 1] = disp[vi + 1] ?? 0;
+      pa[v * 3 + 2] = disp[vi + 2] ?? 0;
+    }
+    posA.needsUpdate = true;
+    const U = this.tMat.uniforms as unknown as Record<string, { value: unknown }>;
+    const col = (k: string): THREE.Color => U[k]?.value as THREE.Color;
+    const vec = (k: string): THREE.Vector3 => U[k]?.value as THREE.Vector3;
+    const flt = (k: string): { value: number } => U[k] as { value: number };
+    const lA = hex(str(params, 'lightA', '#ff2b4e'));
+    const lB = hex(str(params, 'lightB', '#27e6ff'));
+    col('u_lightA').setRGB(lA[0], lA[1], lA[2]);
+    col('u_lightB').setRGB(lB[0], lB[1], lB[2]);
+    const dA = dirFromAzEl(num(params, 'azA', -70), num(params, 'elA', 22));
+    const dB = dirFromAzEl(num(params, 'azB', 70), num(params, 'elB', 20));
+    vec('u_dirA').set(dA[0], dA[1], dA[2]);
+    vec('u_dirB').set(dB[0], dB[1], dB[2]);
+    flt('u_intA').value = num(params, 'intA', 1.3);
+    flt('u_intB').value = num(params, 'intB', 1.15);
+    flt('u_ambient').value = num(params, 'ambient', 0.03);
+    flt('u_wrap').value = num(params, 'wrap', 0.15);
+    flt('u_rim').value = num(params, 'rim', 0.7);
+    col('u_rimColor').setRGB((lA[0] + lB[0]) / 2, (lA[1] + lB[1]) / 2, (lA[2] + lB[2]) / 2);
+    flt('u_alpha').value = num(params, 'faceAlpha', 0.45);
+    flt('u_backface').value = num(params, 'backface', 0.45);
+    flt('u_bloom').value = num(params, 'bloom', 0.5);
+    flt('u_hero').value = Math.max(0.5, c.heroHeight);
+    const fogC = this.scene.fog as THREE.FogExp2 | null;
+    if (fogC) col('u_fogColor').copy(fogC.color);
+    flt('u_fogK').value = fogK;
+    flt('u_edgeOpacity').value = num(params, 'edgeOpacity', 0.22);
+    flt('u_edgeWidth').value = num(params, 'edgeWidth', 1.0);
+    flt('u_focus').value = num(params, 'focus', 30);
+    flt('u_dof').value = num(params, 'dof', 0.4);
+    flt('u_near').value = num(params, 'nearFade', 5);
+    this.tMesh.visible = true;
+  }
+
   private ensureCache(seed: number, params: Params): void {
     const kind = this.opts.topology;
     const density = Math.round(num(params, 'density', kind === 'plexus' ? 220 : 110));
@@ -485,6 +650,10 @@ export class WaveEngine implements Scene3DHandle {
     const fillFrame = bool(params, 'fillFrame', true);
     let w = num(params, 'surfWidth', 44);
     let d = num(params, 'surfDepth', 34);
+    const baseW = w;
+    const baseD = d;
+    // Pre-expansion size: mound layout always uses the authored frame so
+    // heroes stay centred no matter how far fillFrame extends the floor.
     // Surface topologies (not the plexus volume) can auto-size to the frustum
     // so no grid edge is ever visible, including at extreme aspect ratios.
     if (fillFrame && kind !== 'plexus') {
@@ -507,7 +676,17 @@ export class WaveEngine implements Scene3DHandle {
     const shape = str(params, 'shape', 'circle');
     const linkDist = num(params, 'linkDist', 8.5);
     const motion = num(params, 'motion', 0.8);
-    const key = [kind, seed >>> 0, density, nodeCount, detail, edgeFade, w, d, amp, freq, waves, dir, jitter, shape, linkDist, motion].join('|');
+    // Terrain-only mound inputs (topology-affecting ones join the cache key;
+    // curl/floorNoise/flow are per-frame and stay out of it).
+    const moundCount = Math.max(1, Math.min(4, Math.round(num(params, 'moundCount', 2))));
+    const heroHeight = num(params, 'heroHeight', 4.5);
+    const moundRadius = num(params, 'moundRadius', 8);
+    const elongation = num(params, 'elongation', 1.6);
+    const flipFrac = clamp(num(params, 'flip', 0.6), 0, 1);
+    const tKey = kind === 'terrain'
+      ? [kind, seed >>> 0, density, detail, edgeFade, w, d, baseW, baseD, jitter, flipFrac, moundCount, heroHeight, moundRadius, elongation].join('|')
+      : '';
+    const key = kind === 'terrain' ? tKey : [kind, seed >>> 0, density, nodeCount, detail, edgeFade, w, d, amp, freq, waves, dir, jitter, shape, linkDist, motion].join('|');
     if (this.cache && this.cache.key === key) return;
 
     const rot = (dir * Math.PI) / 180;
@@ -525,6 +704,62 @@ export class WaveEngine implements Scene3DHandle {
 
     const rng = mulberry32((seed >>> 0) ^ 0x9e3779b9);
     const shapeMixed = shape === 'mixed';
+    if (kind === 'terrain') {
+      // Regular grid triangulated with a seeded per-cell diagonal flip and
+      // vertex jitter scaled by the cell size (floor stays a regular grid).
+      const tDensity = clamp(Math.round(density * detail), 20, 400);
+      const [nx, nz] = this.capGrid(
+        tDensity,
+        clamp(Math.round((tDensity * d) / Math.max(1, w)), 12, 400),
+      );
+      const g = buildGrid(nx, nz, w, d);
+      const cell = w / Math.max(1, nx - 1);
+      const jittered = new Float32Array(g.positions);
+      for (let i = 0; i < nx * nz; i++) {
+        jittered[i * 3] = (jittered[i * 3] ?? 0) + (rng.next() - 0.5) * 2 * jitter * cell;
+        jittered[i * 3 + 2] = (jittered[i * 3 + 2] ?? 0) + (rng.next() - 0.5) * 2 * jitter * cell;
+      }
+      const flip = new Uint8Array(Math.max(0, (nx - 1) * (nz - 1)));
+      const indices: number[] = [];
+      const edges: number[] = Array.from(g.edges);
+      const at = (ix: number, iz: number): number => iz * nx + ix;
+      for (let iz = 0; iz + 1 < nz; iz++) {
+        for (let ix = 0; ix + 1 < nx; ix++) {
+          const a = at(ix, iz);
+          const b = at(ix + 1, iz);
+          const cc = at(ix, iz + 1);
+          const dd = at(ix + 1, iz + 1);
+          const f = rng.next() < flipFrac ? 1 : 0;
+          flip[iz * (nx - 1) + ix] = f;
+          // Consistent counter-clockwise winding seen from above (up normals
+          // by the right-hand rule) for BOTH diagonals, so screen-space face
+          // normals and front/back-facing are coherent across the mesh.
+          if (f === 1) {
+            indices.push(a, dd, b, a, cc, dd);
+            edges.push(b, dd, dd, cc);
+          } else {
+            indices.push(a, cc, b, b, cc, dd);
+            edges.push(a, dd);
+          }
+        }
+      }
+      const mounds = buildMounds(seed, {
+        count: moundCount,
+        heroHeight,
+        radius: moundRadius,
+        elongation,
+        width: baseW,
+        depth: baseD,
+      });
+      const { nodeShape, nodeSizeT, nodePhase, orbitR, orbitK } = this.nodeAttrs(rng, nx * nz, shapeMixed, shape);
+      this.cache = {
+        key, kind, count: nx * nz, base: jittered, edges: new Uint32Array(edges),
+        nodeShape, nodeSizeT, nodePhase, orbitR, orbitK, waves: [], nx, nz,
+        amplitude: heroHeight, width: w, depth: d, edgeFade,
+        mounds, flip, indices: new Uint32Array(indices), heroHeight,
+      };
+      return;
+    }
     if (kind === 'plexus') {
       const count = clamp(nodeCount, 40, 600);
       const linkDist = num(params, 'linkDist', 8.5);
@@ -540,7 +775,7 @@ export class WaveEngine implements Scene3DHandle {
         orbitR[i] = rng.range(0.15, 1.1) * motion;
         orbitK[i] = rng.next() < 0.7 ? 1 : 2;
       }
-      this.cache = { key, kind, count, base, edges, nodeShape, nodeSizeT, nodePhase, orbitR, orbitK, waves: mkWaves, nx: 0, nz: 0, amplitude: amp, width: w, depth: d, edgeFade };
+      this.cache = { key, kind, count, base, edges, nodeShape, nodeSizeT, nodePhase, orbitR, orbitK, waves: mkWaves, nx: 0, nz: 0, amplitude: amp, width: w, depth: d, edgeFade, mounds: EMPTY_MOUNDS, flip: new Uint8Array(0), indices: new Uint32Array(0), heroHeight: amp };
       return;
     }
 
@@ -556,7 +791,7 @@ export class WaveEngine implements Scene3DHandle {
         jittered[i * 3 + 2] = (jittered[i * 3 + 2] ?? 0) + (rng.next() - 0.5) * jitter * 1.4;
       }
       const { nodeShape, nodeSizeT, nodePhase, orbitR, orbitK } = this.nodeAttrs(rng, h.count, shapeMixed, shape);
-      this.cache = { key, kind, count: h.count, base: jittered, edges: h.edges, nodeShape, nodeSizeT, nodePhase, orbitR, orbitK, waves: mkWaves, nx: cols, nz: rows, amplitude: amp, width: w, depth: d, edgeFade };
+      this.cache = { key, kind, count: h.count, base: jittered, edges: h.edges, nodeShape, nodeSizeT, nodePhase, orbitR, orbitK, waves: mkWaves, nx: cols, nz: rows, amplitude: amp, width: w, depth: d, edgeFade, mounds: EMPTY_MOUNDS, flip: new Uint8Array(0), indices: new Uint32Array(0), heroHeight: amp };
       return;
     }
 
@@ -572,7 +807,7 @@ export class WaveEngine implements Scene3DHandle {
       jittered[i * 3 + 2] = (jittered[i * 3 + 2] ?? 0) + (rng.next() - 0.5) * jitter * 1.6;
     }
     const { nodeShape, nodeSizeT, nodePhase, orbitR, orbitK } = this.nodeAttrs(rng, nx * nz, shapeMixed, shape);
-    this.cache = { key, kind, count: nx * nz, base: jittered, edges: g.edges, nodeShape, nodeSizeT, nodePhase, orbitR, orbitK, waves: mkWaves, nx, nz, amplitude: amp, width: w, depth: d, edgeFade };
+    this.cache = { key, kind, count: nx * nz, base: jittered, edges: g.edges, nodeShape, nodeSizeT, nodePhase, orbitR, orbitK, waves: mkWaves, nx, nz, amplitude: amp, width: w, depth: d, edgeFade, mounds: EMPTY_MOUNDS, flip: new Uint8Array(0), indices: new Uint32Array(g.indices), heroHeight: amp };
   }
 
   /** Auto-reduce grid density so the vertex count stays under a safe cap. */
@@ -614,6 +849,12 @@ export class WaveEngine implements Scene3DHandle {
     (this.lineMat as unknown as { dispose?: () => void })?.dispose?.();
     this.meshGeo?.dispose();
     (this.mesh?.material as THREE.Material | undefined)?.dispose();
+    this.tGeo?.dispose();
+    (this.tMat as unknown as { dispose?: () => void })?.dispose?.();
+    if (this.tMesh) this.scene.remove(this.tMesh);
+    this.tMesh = null;
+    this.tGeo = null;
+    this.tMat = null;
     this.bgMesh.geometry.dispose();
     this.bgMat.dispose();
     this.composer.dispose();
