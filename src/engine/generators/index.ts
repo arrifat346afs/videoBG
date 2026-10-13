@@ -18,6 +18,12 @@ import { halftone } from './halftone.ts';
 import { raymarched } from './raymarched.ts';
 import { reactionDiffusion } from './reactionDiffusion.ts';
 import { godrays } from './godrays.ts';
+import { vectorWaves } from './vectorWaves.ts';
+import { vectorBlobs } from './vectorBlobs.ts';
+import { vectorShapes } from './vectorShapes.ts';
+import { vectorLowpoly } from './vectorLowpoly.ts';
+import { vectorStripes } from './vectorStripes.ts';
+import { vectorGridMosaic } from './vectorGridMosaic.ts';
 import { waveMesh } from '../scene3d/waveMesh.ts';
 import { dotWave } from '../scene3d/dotWave.ts';
 import { hexWave } from '../scene3d/hexWave.ts';
@@ -41,6 +47,12 @@ registerGenerator(halftone);
 registerGenerator(raymarched);
 registerGenerator(reactionDiffusion);
 registerGenerator(godrays);
+registerGenerator(vectorWaves);
+registerGenerator(vectorBlobs);
+registerGenerator(vectorShapes);
+registerGenerator(vectorLowpoly);
+registerGenerator(vectorStripes);
+registerGenerator(vectorGridMosaic);
 registerGenerator(waveMesh);
 registerGenerator(dotWave);
 registerGenerator(hexWave);
@@ -65,6 +77,12 @@ export const ALL_GENERATORS: Generator[] = [
   raymarched,
   reactionDiffusion,
   godrays,
+  vectorWaves,
+  vectorBlobs,
+  vectorShapes,
+  vectorLowpoly,
+  vectorStripes,
+  vectorGridMosaic,
   waveMesh,
   dotWave,
   hexWave,

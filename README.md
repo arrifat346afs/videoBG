@@ -10,7 +10,7 @@ WebM fallback via MediaRecorder).
 - WebGL2 + custom tiny wrapper (`src/engine/gl.ts`, no `ogl`) — fullscreen triangle, uniform cache, context-loss handling.
 - Zustand for state, Tweakpane for settings panel.
 - mediabunny (successor to mp4-muxer) + WebCodecs VideoEncoder; MediaRecorder fallback.
-- Vitest (53 tests: RNG, loop math, palettes, registry, share, export math).
+- Vitest (78 tests: RNG, loop math, frustum, gradient, palettes, registry, layers, share, export math).
 
 ## Architecture
 
@@ -24,17 +24,31 @@ WebM fallback via MediaRecorder).
 - `Renderer` does generator → scene FBO → post → screen. Post stack
   (`src/engine/post.ts`): contrast/brightness/saturation, grain, vignette,
   chromatic aberration, posterize.
+- Mix stack (`src/engine/layers.ts`, `src/engine/composite.ts`): up to 4 layers,
+  each rendered into its own FBO with per-layer seed/params/opacity/blend
+  (normal, add, screen, multiply, overlay, soft-light, difference) and
+  visible/solo, then composited in one pass before post. The renderer also
+  accepts an external `TexImageSource` per layer (`setLayerSource`) so a
+  scene3d canvas can be blended like any other layer.
+- Gradients (`src/engine/gradient.ts`, `glsl_common.ts`): 2–8 stops with a
+  position and interpolation mode (linear sRGB, smoothed, perceptual OKLab),
+  stored as a compact string param; shared GLSL helpers `gradSample`/`gradCoord`
+  plus palette presets and new harmonies (split-complementary, tetradic,
+  gradient-ramp, pastel, vibrant).
 - `PingPong` (`src/engine/pingpong.ts`) exists for multi-pass (reaction-diffusion
   ships as single-pass approximation with `isMultiPass: true` reserved for a true sim).
 - Export is offline and frame-accurate: step `phase = i/total`, render at exact
   export size, encode via `VideoFrame` → mediabunny `VideoSampleSource`. Never
   real-time. Progress + cancel via `AbortSignal`.
 
-## Generators (22)
+## Generators (28)
 
-2D shader generators (16): domain-warp, gradient-mesh, aurora, flow-field,
+2D shader generators (22): domain-warp, gradient-mesh, aurora, flow-field,
 metaballs, voronoi, plasma, kaleidoscope, truchet, topographic, julia, particles,
-halftone, raymarched, reaction-diffusion, god-rays.
+halftone, raymarched, reaction-diffusion, god-rays, and the flat vector family —
+vector-waves, vector-blobs, vector-shapes, vector-lowpoly, vector-stripes,
+vector-grid-mosaic (crisp shapes antialiased with `fwidth`/`smoothstep`, colours
+from the gradient ramp, optional grain).
 
 3D scene generators (6): wave-mesh, dot-wave, hex-wave, tri-wave, plexus-3d,
 data-flow.
@@ -67,11 +81,18 @@ data-flow.
    Rules: no `uniform float u_time;` / `u_resolution` redeclaration (renderer
    provides them); color params arrive as `vec3`; motion must be periodic in
    `u_phase`/`u_time`; no `hexToRgb01()` in GLSL (renderer converts hex→vec3).
+   A generator can opt into the shared gradient ramp with
+   `gradientParams()` (`src/engine/gradient.ts`) and sample it in GLSL with
+   `gradSample(gradCoord(p, u_gradAngle, u_gradShape))`.
 2. Add one line in `src/engine/generators/index.ts`: import + `registerGenerator(myStyle)` + list entry.
 
 ## Scripts
 
 - `bun run dev` / `build` / `lint` / `test` / `typecheck`
+- `bun scripts/validateShaders.ts` + `glslangValidator` — compiles every assembled fragment shader and the composite pass.
+- `bun scripts/loopCheck.ts [--gen id]` — headless WebGL2 loop-seam check per generator.
+- `bun scripts/renderSamples.ts --gen id --seed-mode randomize --seeds 1,2,3` — PNG + ASCII + colour stats.
+- `bun scripts/renderMix.ts --a aurora --b plasma --blend screen` — verifies the two-layer compositor.
 - Keyboard: Space play/pause, R randomize, E export.
 
 ## Constraints noted

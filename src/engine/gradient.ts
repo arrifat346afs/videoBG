@@ -249,7 +249,7 @@ export function gradientUniforms(grad: GradientStops): { colors: Float32Array; p
 /* ---- generator param helpers ---- */
 
 /** Standard gradient params every style can opt into. */
-export function gradientParams(o: { stops?: string; angle?: number; mode?: GradientMode } = {}): ParamDef[] {
+export function gradientParams(o: { stops?: string; angle?: number; shape?: GradientMode } = {}): ParamDef[] {
   return [
     {
       kind: 'gradient',
@@ -257,7 +257,7 @@ export function gradientParams(o: { stops?: string; angle?: number; mode?: Gradi
       label: 'Gradient',
       defaultValue: o.stops ?? encodeGradient(gradientFromColors(['#0b1026', '#1b2a6b', '#3a86ff', '#ffffff'])),
     },
-    { kind: 'select', key: 'gradMode', label: 'Gradient shape', options: GRADIENT_MODES, defaultValue: o.mode ?? 'linear' },
+    { kind: 'select', key: 'gradShape', label: 'Gradient shape', options: GRADIENT_MODES, defaultValue: o.shape ?? 'linear' },
     { kind: 'number', key: 'gradAngle', label: 'Gradient angle', min: 0, max: 360, step: 1, defaultValue: o.angle ?? 0 },
   ];
 }
